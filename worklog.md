@@ -60,3 +60,20 @@ Stage Summary:
 - User management: admin can create/edit/delete users with role assignment
 - Settings: org config, Pesapal gateway config, profile management, permission matrix
 - Demo accounts: super@nekkewifi.com, hassan@darnet.co.tz, grace@darnet.co.tz, juma.viewer@darnet.co.tz
+
+---
+Task ID: 4
+Agent: Super Z (Main)
+Task: Fix login failure - users unable to sign in
+
+Work Log:
+- Diagnosed root cause: auth-store.ts was fetching `/api/auth/login` but API route handler at `src/app/api/auth/route.ts` only serves `/api/auth`
+- Verified database was properly seeded with 7 users across 2 organizations (all active)
+- Fixed fetch URL in src/lib/auth-store.ts line 108: changed `/api/auth/login` to `/api/auth`
+- Rebuilt Next.js app - zero errors
+- Tested login API: all 7 demo accounts verified working (both demo123 and stored passwords)
+
+Stage Summary:
+- Bug fix: URL mismatch between client fetch and server route
+- Login now works for all accounts: super_admin, admin (x2), agent (x2), viewer (x2)
+- Platform accessible at localhost:3000
