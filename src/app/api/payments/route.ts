@@ -1,0 +1,169 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { db } from '@/lib/db';
+import { Prisma } from '@prisma/client';
+
+export async function GET(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const orgId = searchParams.get('orgId') ?? '';
+    const customerId = searchParams.get('customerId') ?? '';
+    const method = searchParams.get('method') ?? '';
+    const startDateParam = searchParams.get('startDate') ?? '';
+    const endDateParam = searchParams.get('endDate') ?? '';
+
+    const where: Prisma.PaymentWhereInput = {};
+
+    if (orgId) where.organizationId = orgId;
+    if (customerId) where.customerId = customerId;
+    if (method) where.method = method;
+
+    if (startDateParam && endDateParam) {
+      where.paidAt = {
+        gte: new Date(startDateParam),
+        lte: new Date(endDateParam),
+      };
+    }
+
+    const payments = await db.payment.findMany({
+      where,
+      orderBy: { paidAt: 'desc' },
+      include: {
+        customer: {
+          select: { id: true, firstName: true, lastName: true, email: true, phone: true },
+        },
+        invoice: {
+          select: { id: true, invoiceNumber: true, total: true, status: true },
+        },
+        organization: { select: { id: true, name: true } },
+      },
+    });
+
+    // Calculate totals
+    const totalAmount = payments
+      .filter((p) => p.status === 'completed')
+      .reduce((sum, p) => sum + p.amount, 0);
+
+    return NextResponse.json({
+      data: payments,
+      summary: {
+        count: payments.length,
+        totalAmount,
+      },
+    });
+  } catch (error: unknown) {
+    console.error('Payments GET error:', error);
+    const message = error instanceof Error ? error.message : 'Failed to fetch payments';
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const {
+      organizationId, customerId, invoiceId, amount, method,
+      reference, status, receiptNumber, notes, paidAt,
+    } = body;
+
+    if (!organizationId || !customerId || amount === undefined) {
+      return NextResponse.json(
+        { error: 'organizationId, customerId, and amount are required' },
+        { status: 400 }
+      );
+    }
+
+    // Verify customer exists
+    const customer = await db.customer.findUnique({ where: { id: customerId } });
+    if (!customer) {
+      return NextResponse.json({ error: 'Customer not found' }, { status: 404 });
+    }
+
+    // Verify invoice exists if provided
+    if (invoiceId) {
+      const invoice = await db.invoice.findUnique({
+        where: { id: invoiceId },
+        include: { payments: { select: { id: true, amount: true, status: true } } },
+      });
+
+      if (!invoice) {
+        return NextResponse.json({ error: 'Invoice not found' }, { status: 404 });
+      }
+
+      // Calculate total paid so far
+      const existingPaid = invoice.payments
+        .filter((p) => p.status === 'completed')
+        .reduce((sum, p) => sum + p.amount, 0);
+
+      const newTotalPaid = existingPaid + amount;
+
+      // Determine new invoice status
+      let newInvoiceStatus: string;
+      if (newTotalPaid >= invoice.total) {
+        newInvoiceStatus = 'paid';
+      } else if (newTotalPaid > 0) {
+        newInvoiceStatus = 'partial';
+      } else {
+        newInvoiceStatus = invoice.status;
+      }
+
+      // Create payment and update invoice in a transaction
+      const result = await db.$transaction(async (tx) => {
+        const payment = await tx.payment.create({
+          data: {
+            organizationId,
+            customerId,
+            invoiceId,
+            amount,
+            method: method ?? 'cash',
+            reference,
+            status: status ?? 'completed',
+            receiptNumber,
+            notes,
+            paidAt: paidAt ? new Date(paidAt) : new Date(),
+          },
+          include: {
+            customer: { select: { id: true, firstName: true, lastName: true } },
+            invoice: { select: { id: true, invoiceNumber: true } },
+          },
+        });
+
+        await tx.invoice.update({
+          where: { id: invoiceId },
+          data: {
+            status: newInvoiceStatus,
+            ...(newInvoiceStatus === 'paid' && !invoice.paidAt && { paidAt: new Date() }),
+          },
+        });
+
+        return payment;
+      });
+
+      return NextResponse.json(result, { status: 201 });
+    } else {
+      // No invoice, just create payment
+      const payment = await db.payment.create({
+        data: {
+          organizationId,
+          customerId,
+          amount,
+          method: method ?? 'cash',
+          reference,
+          status: status ?? 'completed',
+          receiptNumber,
+          notes,
+          paidAt: paidAt ? new Date(paidAt) : new Date(),
+        },
+        include: {
+          customer: { select: { id: true, firstName: true, lastName: true } },
+          invoice: { select: { id: true, invoiceNumber: true } },
+        },
+      });
+
+      return NextResponse.json(payment, { status: 201 });
+    }
+  } catch (error: unknown) {
+    console.error('Payments POST error:', error);
+    const message = error instanceof Error ? error.message : 'Failed to create payment';
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}

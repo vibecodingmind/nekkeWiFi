@@ -1,0 +1,283 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// MULTI-TENANT ORGANIZATION (ISP Company)
+// ============================================
+model Organization {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  logo        String?
+  email       String
+  phone       String?
+  address     String?
+  country     String   @default("Tanzania")
+  currency    String   @default("TZS")
+  taxRate     Float    @default(18.0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users         OrgUser[]
+  customers     Customer[]
+  devices       Device[]
+  plans         Plan[]
+  subscriptions Subscription[]
+  invoices      Invoice[]
+  payments      Payment[]
+  usageRecords  UsageRecord[]
+}
+
+// ============================================
+// ORGANIZATION USERS (Staff with RBAC)
+// ============================================
+model OrgUser {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  email          String   @unique
+  password       String?
+  role           String   @default("agent") // admin, agent, viewer
+  avatar         String?
+  isActive       Boolean  @default(true)
+  lastLoginAt    DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+// ============================================
+// CUSTOMER / SUBSCRIBER
+// ============================================
+model Customer {
+  id             String   @id @default(cuid())
+  organizationId String
+  firstName      String
+  lastName       String
+  email          String?
+  phone          String
+  address        String?
+  city           String?
+  region         String?
+  status         String   @default("active") // active, suspended, disconnected, trial
+  balance        Float    @default(0)
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization  Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  subscriptions Subscription[]
+  payments      Payment[]
+  usageRecords  UsageRecord[]
+  invoices      Invoice[]
+}
+
+// ============================================
+// NETWORK DEVICES (MikroTik, TP-Link, etc.)
+// ============================================
+model Device {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  type           String   // mikrotik, tplink, juniper, cisco, ubiquiti, generic
+  model          String?
+  ipAddress      String
+  port           Int      @default(8728)
+  apiUser        String
+  apiPassword    String
+  firmware       String?
+  serialNumber   String?
+  location       String?
+  status         String   @default("online") // online, offline, warning, maintenance
+  lastSeenAt     DateTime?
+  totalBandwidth String?  // e.g. "1Gbps"
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization      Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  interfaces        DeviceInterface[]
+  provisioningRules ProvisioningRule[]
+  subscriptions     Subscription[]
+}
+
+// ============================================
+// DEVICE INTERFACES / PORTS
+// ============================================
+model DeviceInterface {
+  id        String  @id @default(cuid())
+  deviceId  String
+  name      String  // e.g. "ether1", "sfp1"
+  type      String? // ethernet, sfp, wireless, bridge
+  macAddress String?
+  status    String  @default("up") // up, down, disabled
+  speed     String? // e.g. "1Gbps"
+  rxBytes   Int     @default(0)
+  txBytes   Int     @default(0)
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+}
+
+// ============================================
+// PROVISIONING RULES (Device-specific plan mapping)
+// ============================================
+model ProvisioningRule {
+  id        String @id @default(cuid())
+  deviceId  String
+  planId    String?
+  planName  String
+  speedDown String? // e.g. "50Mbps"
+  speedUp   String? // e.g. "10Mbps"
+  dataCap   Int?    // MB, null = unlimited
+  queueType String  @default("simple") // simple, pcq, tree
+  priority  Int     @default(1)
+  isActive  Boolean @default(true)
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  plan   Plan?  @relation(fields: [planId], references: [id])
+}
+
+// ============================================
+// ISP PLANS / PACKAGES
+// ============================================
+model Plan {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  description    String?
+  speedDown      String   // e.g. "50Mbps"
+  speedUp        String   // e.g. "10Mbps"
+  dataCap        Int?     // MB, null = unlimited
+  priceMonthly   Float
+  priceQuarterly Float?
+  priceYearly    Float?
+  setupFee       Float    @default(0)
+  isActive       Boolean  @default(true)
+  isPopular      Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization  Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  subscriptions     Subscription[]
+  provisioningRules ProvisioningRule[]
+}
+
+// ============================================
+// SUBSCRIPTIONS
+// ============================================
+model Subscription {
+  id             String   @id @default(cuid())
+  organizationId String
+  customerId     String
+  planId         String
+  deviceId       String?
+  status         String   @default("active") // active, suspended, expired, cancelled
+  startDate      DateTime @default(now())
+  endDate        DateTime?
+  billingCycle   String   @default("monthly") // monthly, quarterly, yearly
+  autoRenew      Boolean  @default(true)
+  username       String?  // PPPoE / login username
+  password       String?  // PPPoE / login password
+  ipAssignment   String?
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer     Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  plan         Plan         @relation(fields: [planId], references: [id])
+  device       Device?      @relation(fields: [deviceId], references: [id])
+  invoices     Invoice[]
+  usageRecords UsageRecord[]
+}
+
+// ============================================
+// USAGE / BANDWIDTH RECORDS
+// ============================================
+model UsageRecord {
+  id             String   @id @default(cuid())
+  organizationId String
+  customerId     String
+  subscriptionId String
+  deviceId       String?
+  date           DateTime @default(now())
+  downloadBytes  Int      @default(0)
+  uploadBytes    Int      @default(0)
+  totalBytes     Int      @default(0)
+  sessionTime    Int?     // seconds
+  createdAt      DateTime @default(now())
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer     Customer      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  subscription Subscription  @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+}
+
+// ============================================
+// INVOICES
+// ============================================
+model Invoice {
+  id             String   @id @default(cuid())
+  organizationId String
+  customerId     String
+  subscriptionId String?
+  invoiceNumber  String   @unique
+  status         String   @default("pending") // pending, paid, partial, overdue, cancelled
+  subtotal       Float    @default(0)
+  tax            Float    @default(0)
+  discount       Float    @default(0)
+  total          Float    @default(0)
+  dueDate        DateTime
+  paidAt         DateTime?
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer     Customer           @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  subscription Subscription?     @relation(fields: [subscriptionId], references: [id])
+  lineItems   InvoiceLineItem[]
+  payments     Payment[]
+}
+
+// ============================================
+// INVOICE LINE ITEMS
+// ============================================
+model InvoiceLineItem {
+  id         String @id @default(cuid())
+  invoiceId  String
+  description String
+  quantity   Int    @default(1)
+  unitPrice  Float
+  total      Float
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+}
+
+// ============================================
+// PAYMENTS
+// ============================================
+model Payment {
+  id             String   @id @default(cuid())
+  organizationId String
+  customerId     String
+  invoiceId      String?
+  amount         Float
+  method         String   @default("cash") // cash, bank_transfer, mobile_money, card, online
+  reference      String?
+  status         String   @default("completed") // completed, pending, failed, refunded
+  receiptNumber  String?
+  notes          String?
+  paidAt         DateTime @default(now())
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer     Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  invoice      Invoice?     @relation(fields: [invoiceId], references: [id])
+}
