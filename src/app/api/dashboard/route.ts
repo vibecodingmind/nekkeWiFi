@@ -1,15 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { Prisma } from '@prisma/client';
+import { requirePermission, getOrgFilter, AuthError } from '@/lib/auth';
 
 export async function GET(request: NextRequest) {
   try {
+    const authUser = requirePermission(request, 'dashboard.view');
     const { searchParams } = new URL(request.url);
-    const orgId = searchParams.get('orgId');
+    const orgIdParam = searchParams.get('orgId');
 
-    const whereOrg: Prisma.OrganizationWhereInput = orgId
-      ? { id: orgId }
-      : {};
+    const orgId = getOrgFilter(authUser, orgIdParam);
+
+    const whereOrg: Prisma.OrganizationWhereInput = authUser.role === 'super_admin' && !orgIdParam
+      ? {}
+      : { id: orgId };
 
     // Total subscribers by status
     const subscriberCounts = await db.customer.groupBy({
@@ -201,6 +205,9 @@ export async function GET(request: NextRequest) {
       recentPayments,
     });
   } catch (error: unknown) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('Dashboard error:', error);
     const message = error instanceof Error ? error.message : 'Failed to load dashboard data';
     return NextResponse.json({ error: message }, { status: 500 });

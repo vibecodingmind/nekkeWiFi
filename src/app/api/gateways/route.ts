@@ -1,21 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { Prisma } from '@prisma/client';
+import { requirePermission, getOrgFilter, AuthError } from '@/lib/auth';
 
-// GET /api/gateways?orgId=xxx — List all payment gateways for an organization
+// GET /api/gateways?orgId=xxx
 export async function GET(request: NextRequest) {
   try {
+    const authUser = requirePermission(request, 'settings.view');
     const { searchParams } = new URL(request.url);
-    const orgId = searchParams.get('orgId');
+    const orgIdParam = searchParams.get('orgId');
 
-    if (!orgId) {
-      return NextResponse.json(
-        { error: 'orgId query parameter is required' },
-        { status: 400 }
-      );
-    }
+    const orgId = getOrgFilter(authUser, orgIdParam);
 
-    // Verify organization exists
     const org = await db.organization.findUnique({ where: { id: orgId } });
     if (!org) {
       return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
@@ -26,7 +22,6 @@ export async function GET(request: NextRequest) {
       orderBy: { createdAt: 'desc' },
     });
 
-    // Count payments per gateway
     const paymentCounts = await db.payment.groupBy({
       by: ['gateway'],
       where: {
@@ -57,15 +52,19 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(enriched);
   } catch (error: unknown) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('Gateways GET error:', error);
     const message = error instanceof Error ? error.message : 'Failed to fetch gateways';
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 
-// POST /api/gateways — Create or update a payment gateway config
+// POST /api/gateways
 export async function POST(request: NextRequest) {
   try {
+    const authUser = requirePermission(request, 'gateways.manage');
     const body = await request.json();
     const {
       organizationId,
@@ -79,23 +78,23 @@ export async function POST(request: NextRequest) {
       ipnUrl,
     } = body;
 
-    if (!organizationId || !gateway) {
+    const orgId = getOrgFilter(authUser, organizationId);
+
+    if (!orgId || !gateway) {
       return NextResponse.json(
-        { error: 'organizationId and gateway are required' },
+        { error: 'gateway type is required' },
         { status: 400 }
       );
     }
 
-    // Verify organization exists
-    const org = await db.organization.findUnique({ where: { id: organizationId } });
+    const org = await db.organization.findUnique({ where: { id: orgId } });
     if (!org) {
       return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
     }
 
-    // Check if a gateway config already exists for this org+gateway
     const existing = await db.paymentGateway.findFirst({
       where: {
-        organizationId,
+        organizationId: orgId,
         gateway,
       },
     });
@@ -103,7 +102,6 @@ export async function POST(request: NextRequest) {
     let result;
 
     if (existing) {
-      // Update existing config
       result = await db.paymentGateway.update({
         where: { id: existing.id },
         data: {
@@ -117,10 +115,9 @@ export async function POST(request: NextRequest) {
         },
       });
     } else {
-      // Create new config
       result = await db.paymentGateway.create({
         data: {
-          organizationId,
+          organizationId: orgId,
           gateway,
           consumerKey: consumerKey ?? null,
           consumerSecret: consumerSecret ?? null,
@@ -140,6 +137,9 @@ export async function POST(request: NextRequest) {
         : null,
     }, { status: existing ? 200 : 201 });
   } catch (error: unknown) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('Gateways POST error:', error);
     const message = error instanceof Error ? error.message : 'Failed to save gateway config';
     return NextResponse.json({ error: message }, { status: 500 });

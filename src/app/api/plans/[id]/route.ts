@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { requirePermission, AuthError } from '@/lib/auth';
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    requirePermission(request, 'plans.view');
     const { id } = await params;
 
     const plan = await db.plan.findUnique({
@@ -44,6 +46,9 @@ export async function GET(
       totalSubscribers: plan._count.subscriptions,
     });
   } catch (error: unknown) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('Plan GET error:', error);
     const message = error instanceof Error ? error.message : 'Failed to fetch plan';
     return NextResponse.json({ error: message }, { status: 500 });
@@ -55,6 +60,7 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    requirePermission(request, 'plans.manage');
     const { id } = await params;
     const body = await request.json();
 
@@ -91,6 +97,9 @@ export async function PUT(
 
     return NextResponse.json(plan);
   } catch (error: unknown) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('Plan PUT error:', error);
     const message = error instanceof Error ? error.message : 'Failed to update plan';
     return NextResponse.json({ error: message }, { status: 500 });
@@ -102,6 +111,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    requirePermission(request, 'plans.delete');
     const { id } = await params;
 
     const existing = await db.plan.findUnique({
@@ -124,6 +134,9 @@ export async function DELETE(
 
     return NextResponse.json({ message: 'Plan deleted successfully' });
   } catch (error: unknown) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('Plan DELETE error:', error);
     const message = error instanceof Error ? error.message : 'Failed to delete plan';
     return NextResponse.json({ error: message }, { status: 500 });

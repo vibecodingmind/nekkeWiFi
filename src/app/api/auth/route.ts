@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { comparePassword, generateToken, getAuthUser, AuthError } from '@/lib/auth';
 
-// POST /api/auth/login
+// POST /api/auth — Login
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -37,11 +38,21 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Demo password: accept "demo123" for any user, or match stored password
-    const isDemoPassword = password === 'demo123';
-    const isStoredPassword = user.password && password === user.password;
+    // Check password: try bcrypt compare first, then fall back to demo password "demo123"
+    let isPasswordValid = false;
 
-    if (!isDemoPassword && !isStoredPassword) {
+    // 1. If stored password is a bcrypt hash, compare with bcrypt
+    if (user.password && user.password.startsWith('$2')) {
+      isPasswordValid = await comparePassword(password, user.password);
+    }
+
+    // 2. Demo password fallback: accept "demo123" for any user
+    const isDemoPassword = password === 'demo123';
+
+    // 3. Legacy plain text comparison (for non-hashed passwords from old seed data)
+    const isPlainTextMatch = user.password && password === user.password;
+
+    if (!isDemoPassword && !isPasswordValid && !isPlainTextMatch) {
       return NextResponse.json(
         { error: 'Invalid email or password' },
         { status: 401 }
@@ -66,9 +77,17 @@ export async function POST(request: NextRequest) {
       isActive: user.isActive,
     };
 
+    // Generate real JWT token
+    const token = generateToken({
+      userId: user.id,
+      email: user.email,
+      role: user.role,
+      organizationId: user.organizationId,
+    });
+
     return NextResponse.json({
       user: userData,
-      token: 'demo-session-token',
+      token,
     });
   } catch (error: unknown) {
     console.error('Auth login error:', error);
@@ -77,47 +96,31 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// GET /api/auth/me?userId=xxx
+// GET /api/auth — Validate existing token
 export async function GET(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url);
-    const userId = searchParams.get('userId');
+    const authUser = getAuthUser(request);
 
-    if (!userId) {
+    if (!authUser) {
       return NextResponse.json(
-        { error: 'userId query parameter is required' },
-        { status: 400 }
+        { error: 'Invalid or missing authentication token' },
+        { status: 401 }
       );
     }
 
     const user = await db.orgUser.findUnique({
-      where: { id: userId },
+      where: { id: authUser.userId },
       include: {
-        organization: {
-          select: { id: true, name: true, slug: true },
-        },
-      },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        avatar: true,
-        isActive: true,
-        lastLoginAt: true,
-        createdAt: true,
-        updatedAt: true,
-        organizationId: true,
         organization: {
           select: { id: true, name: true, slug: true },
         },
       },
     });
 
-    if (!user) {
+    if (!user || !user.isActive) {
       return NextResponse.json(
-        { error: 'User not found' },
-        { status: 404 }
+        { error: 'User not found or account is deactivated' },
+        { status: 401 }
       );
     }
 
@@ -129,8 +132,11 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error: unknown) {
-    console.error('Auth me error:', error);
-    const message = error instanceof Error ? error.message : 'Failed to fetch user';
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+    console.error('Auth validation error:', error);
+    const message = error instanceof Error ? error.message : 'Failed to validate token';
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

@@ -1,4 +1,10 @@
 import { db } from '../src/lib/db';
+import bcrypt from 'bcryptjs';
+
+// Hash password with bcrypt (12 salt rounds)
+async function hashPassword(password: string): Promise<string> {
+  return bcrypt.hash(password, 12);
+}
 
 // ============================================
 // HELPER FUNCTIONS
@@ -172,7 +178,7 @@ async function main() {
       name: 'Super Admin',
       email: 'super@nekkewifi.com',
       role: 'super_admin',
-      password: 'Super@123',
+      password: await hashPassword('Super@123'),
       isActive: true,
       lastLoginAt: daysAgo(0),
     },
@@ -180,17 +186,17 @@ async function main() {
 
   const darnetUsers = await db.orgUser.createMany({
     data: [
-      { organizationId: darnet.id, name: 'Admin Hassan', email: 'hassan@darnet.co.tz', role: 'admin', password: 'Admin@123', isActive: true, lastLoginAt: daysAgo(0) },
-      { organizationId: darnet.id, name: 'Agent Grace', email: 'grace@darnet.co.tz', role: 'agent', password: 'Agent@123', isActive: true, lastLoginAt: daysAgo(1) },
-      { organizationId: darnet.id, name: 'Viewer Juma', email: 'juma.viewer@darnet.co.tz', role: 'viewer', password: 'Viewer@123', isActive: true, lastLoginAt: daysAgo(3) },
+      { organizationId: darnet.id, name: 'Admin Hassan', email: 'hassan@darnet.co.tz', role: 'admin', password: await hashPassword('Admin@123'), isActive: true, lastLoginAt: daysAgo(0) },
+      { organizationId: darnet.id, name: 'Agent Grace', email: 'grace@darnet.co.tz', role: 'agent', password: await hashPassword('Agent@123'), isActive: true, lastLoginAt: daysAgo(1) },
+      { organizationId: darnet.id, name: 'Viewer Juma', email: 'juma.viewer@darnet.co.tz', role: 'viewer', password: await hashPassword('Viewer@123'), isActive: true, lastLoginAt: daysAgo(3) },
     ],
   });
 
   const arushaUsers = await db.orgUser.createMany({
     data: [
-      { organizationId: arushafiber.id, name: 'Admin Daniel', email: 'daniel@arushafiber.co.tz', role: 'admin', password: 'Admin@123', isActive: true, lastLoginAt: daysAgo(0) },
-      { organizationId: arushafiber.id, name: 'Agent Sidai', email: 'sidai@arushafiber.co.tz', role: 'agent', password: 'Agent@123', isActive: true, lastLoginAt: daysAgo(2) },
-      { organizationId: arushafiber.id, name: 'Viewer Naomi', email: 'naomi.viewer@arushafiber.co.tz', role: 'viewer', password: 'Viewer@123', isActive: true, lastLoginAt: daysAgo(5) },
+      { organizationId: arushafiber.id, name: 'Admin Daniel', email: 'daniel@arushafiber.co.tz', role: 'admin', password: await hashPassword('Admin@123'), isActive: true, lastLoginAt: daysAgo(0) },
+      { organizationId: arushafiber.id, name: 'Agent Sidai', email: 'sidai@arushafiber.co.tz', role: 'agent', password: await hashPassword('Agent@123'), isActive: true, lastLoginAt: daysAgo(2) },
+      { organizationId: arushafiber.id, name: 'Viewer Naomi', email: 'naomi.viewer@arushafiber.co.tz', role: 'viewer', password: await hashPassword('Viewer@123'), isActive: true, lastLoginAt: daysAgo(5) },
     ],
   });
 

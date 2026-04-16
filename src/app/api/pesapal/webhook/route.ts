@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Find the payment by tracking ID
-    const payment = await db.payment.findUnique({
+    const payment = await db.payment.findFirst({
       where: { pesapalTrackingId: trackingId },
       include: { invoice: { select: { id: true, total: true, paidAt: true } } },
     });

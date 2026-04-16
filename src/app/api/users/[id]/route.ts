@@ -1,32 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { requirePermission, AuthError, hashPassword } from '@/lib/auth';
 
 // GET /api/users/[id]
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    requirePermission(request, 'users.view');
     const { id } = await params;
 
     const user = await db.orgUser.findUnique({
       where: { id },
       include: {
-        organization: {
-          select: { id: true, name: true, slug: true },
-        },
-      },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        avatar: true,
-        isActive: true,
-        lastLoginAt: true,
-        createdAt: true,
-        updatedAt: true,
-        organizationId: true,
         organization: {
           select: { id: true, name: true, slug: true },
         },
@@ -50,6 +37,9 @@ export async function GET(
       },
     });
   } catch (error: unknown) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('User GET error:', error);
     const message = error instanceof Error ? error.message : 'Failed to fetch user';
     return NextResponse.json({ error: message }, { status: 500 });
@@ -62,11 +52,11 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const authUser = requirePermission(request, 'users.manage');
     const { id } = await params;
     const body = await request.json();
-    const { name, email, role, isActive, password, updaterId } = body;
+    const { name, email, role, isActive, password } = body;
 
-    // Check if user exists
     const existingUser = await db.orgUser.findUnique({
       where: { id },
     });
@@ -78,32 +68,17 @@ export async function PUT(
       );
     }
 
-    // If role is being changed, check updater permissions
+    // Only super_admin can assign super_admin role
+    if (role && role === 'super_admin' && authUser.role !== 'super_admin') {
+      return NextResponse.json(
+        { error: 'Only super admins can assign the super_admin role' },
+        { status: 403 }
+      );
+    }
+
     if (role && role !== existingUser.role) {
-      if (updaterId) {
-        const updater = await db.orgUser.findUnique({
-          where: { id: updaterId },
-          select: { role: true },
-        });
-
-        if (!updater) {
-          return NextResponse.json(
-            { error: 'Updater not found' },
-            { status: 404 }
-          );
-        }
-
-        if (updater.role !== 'admin' && updater.role !== 'super_admin') {
-          return NextResponse.json(
-            { error: 'Only admins can change user roles' },
-            { status: 403 }
-          );
-        }
-      }
-
-      // Validate role
       const validRoles = ['admin', 'agent', 'viewer'];
-      if (!validRoles.includes(role)) {
+      if (!validRoles.includes(role) && !(role === 'super_admin' && authUser.role === 'super_admin')) {
         return NextResponse.json(
           { error: `Invalid role. Must be one of: ${validRoles.join(', ')}` },
           { status: 400 }
@@ -111,7 +86,6 @@ export async function PUT(
       }
     }
 
-    // If email is being changed, check uniqueness
     if (email && email.toLowerCase() !== existingUser.email) {
       const emailExists = await db.orgUser.findUnique({
         where: { email: email.toLowerCase() },
@@ -125,13 +99,15 @@ export async function PUT(
       }
     }
 
-    // Build update data
     const updateData: Record<string, unknown> = {};
     if (name !== undefined) updateData.name = name;
     if (email !== undefined) updateData.email = email.toLowerCase();
     if (role !== undefined) updateData.role = role;
     if (isActive !== undefined) updateData.isActive = isActive;
-    if (password !== undefined && password !== '') updateData.password = password;
+    // Hash new password if provided
+    if (password !== undefined && password !== '') {
+      updateData.password = await hashPassword(password);
+    }
 
     const updatedUser = await db.orgUser.update({
       where: { id },
@@ -152,6 +128,9 @@ export async function PUT(
 
     return NextResponse.json({ user: updatedUser });
   } catch (error: unknown) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('User PUT error:', error);
     const message = error instanceof Error ? error.message : 'Failed to update user';
     return NextResponse.json({ error: message }, { status: 500 });
@@ -164,11 +143,9 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const authUser = requirePermission(request, 'users.delete');
     const { id } = await params;
-    const { searchParams } = new URL(request.url);
-    const deleterId = searchParams.get('deleterId');
 
-    // Check if user exists
     const user = await db.orgUser.findUnique({
       where: { id },
     });
@@ -181,36 +158,21 @@ export async function DELETE(
     }
 
     // Cannot delete self
-    if (deleterId && deleterId === id) {
+    if (authUser.userId === id) {
       return NextResponse.json(
         { error: 'Cannot delete your own account' },
         { status: 400 }
       );
     }
 
-    // Check deleter permissions
-    if (deleterId) {
-      const deleter = await db.orgUser.findUnique({
-        where: { id: deleterId },
-        select: { role: true },
-      });
-
-      if (!deleter) {
-        return NextResponse.json(
-          { error: 'Deleter not found' },
-          { status: 404 }
-        );
-      }
-
-      if (deleter.role !== 'admin' && deleter.role !== 'super_admin') {
-        return NextResponse.json(
-          { error: 'Only admins can delete users' },
-          { status: 403 }
-        );
-      }
+    // Non-super_admin cannot delete super_admin
+    if (user.role === 'super_admin' && authUser.role !== 'super_admin') {
+      return NextResponse.json(
+        { error: 'Only super admins can delete super admin accounts' },
+        { status: 403 }
+      );
     }
 
-    // Check if this is the last admin in the organization
     if (user.role === 'admin') {
       const adminCount = await db.orgUser.count({
         where: {
@@ -236,6 +198,9 @@ export async function DELETE(
       message: `User "${user.name}" has been deleted`,
     });
   } catch (error: unknown) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('User DELETE error:', error);
     const message = error instanceof Error ? error.message : 'Failed to delete user';
     return NextResponse.json({ error: message }, { status: 500 });

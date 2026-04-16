@@ -1,16 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { Prisma } from '@prisma/client';
+import { requirePermission, getOrgFilter, AuthError } from '@/lib/auth';
 
 export async function GET(request: NextRequest) {
   try {
+    const authUser = requirePermission(request, 'plans.view');
     const { searchParams } = new URL(request.url);
-    const orgId = searchParams.get('orgId') ?? '';
+    const orgIdParam = searchParams.get('orgId') ?? '';
     const isActiveParam = searchParams.get('isActive') ?? '';
 
-    const where: Prisma.PlanWhereInput = {};
+    const orgId = getOrgFilter(authUser, orgIdParam || undefined);
 
-    if (orgId) where.organizationId = orgId;
+    const where: Prisma.PlanWhereInput = { organizationId: orgId };
+
     if (isActiveParam !== '') {
       where.isActive = isActiveParam === 'true';
     }
@@ -32,6 +35,9 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(plans);
   } catch (error: unknown) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('Plans GET error:', error);
     const message = error instanceof Error ? error.message : 'Failed to fetch plans';
     return NextResponse.json({ error: message }, { status: 500 });
@@ -40,6 +46,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const authUser = requirePermission(request, 'plans.manage');
     const body = await request.json();
     const {
       organizationId, name, description, speedDown, speedUp,
@@ -47,22 +54,24 @@ export async function POST(request: NextRequest) {
       setupFee, isActive, isPopular,
     } = body;
 
-    if (!organizationId || !name || !speedDown || !speedUp || priceMonthly === undefined) {
+    const orgId = getOrgFilter(authUser, organizationId);
+
+    if (!orgId || !name || !speedDown || !speedUp || priceMonthly === undefined) {
       return NextResponse.json(
-        { error: 'organizationId, name, speedDown, speedUp, and priceMonthly are required' },
+        { error: 'name, speedDown, speedUp, and priceMonthly are required' },
         { status: 400 }
       );
     }
 
     // Verify organization exists
-    const org = await db.organization.findUnique({ where: { id: organizationId } });
+    const org = await db.organization.findUnique({ where: { id: orgId } });
     if (!org) {
       return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
     }
 
     const plan = await db.plan.create({
       data: {
-        organizationId,
+        organizationId: orgId,
         name,
         description,
         speedDown,
@@ -82,6 +91,9 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(plan, { status: 201 });
   } catch (error: unknown) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('Plans POST error:', error);
     const message = error instanceof Error ? error.message : 'Failed to create plan';
     return NextResponse.json({ error: message }, { status: 500 });

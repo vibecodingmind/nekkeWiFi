@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { requireAuth, requirePermission, getOrgFilter, AuthError } from '@/lib/auth';
 
 // Available payment methods for Tanzanian Pesapal integration
 const PAYMENT_METHODS = [
@@ -13,7 +14,6 @@ const PAYMENT_METHODS = [
   { id: 'bank_transfer', name: 'Bank Transfer', category: 'bank', icon: 'building', color: '#2E7D32' },
 ];
 
-// Map channel IDs to Pesapal display names
 const CHANNEL_NAME_MAP: Record<string, string> = {
   mpesa: 'M-PESA',
   airtel_money: 'AIRTEL MONEY',
@@ -34,18 +34,14 @@ function generateRandomString(length: number): string {
   return result;
 }
 
-// GET /api/pesapal?orgId=xxx — Get gateway config + available payment methods
+// GET /api/pesapal?orgId=xxx
 export async function GET(request: NextRequest) {
   try {
+    const authUser = requireAuth(request);
     const { searchParams } = new URL(request.url);
-    const orgId = searchParams.get('orgId');
+    const orgIdParam = searchParams.get('orgId');
 
-    if (!orgId) {
-      return NextResponse.json(
-        { error: 'orgId query parameter is required' },
-        { status: 400 }
-      );
-    }
+    const orgId = getOrgFilter(authUser, orgIdParam);
 
     const gateway = await db.paymentGateway.findFirst({
       where: {
@@ -74,15 +70,19 @@ export async function GET(request: NextRequest) {
       paymentMethods: PAYMENT_METHODS,
     });
   } catch (error: unknown) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('Pesapal GET error:', error);
     const message = error instanceof Error ? error.message : 'Failed to fetch Pesapal config';
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 
-// POST /api/pesapal — Create a simulated Pesapal payment order
+// POST /api/pesapal
 export async function POST(request: NextRequest) {
   try {
+    requirePermission(request, 'pesapal.manage');
     const body = await request.json();
     const {
       organizationId,
@@ -97,6 +97,7 @@ export async function POST(request: NextRequest) {
       lastName,
     } = body;
 
+    // Organization ID comes from request body, validated by requirePermission above
     if (!organizationId || !customerId || !amount || !paymentChannel) {
       return NextResponse.json(
         { error: 'organizationId, customerId, amount, and paymentChannel are required' },
@@ -104,7 +105,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Verify customer exists
     const customer = await db.customer.findUnique({
       where: { id: customerId },
     });
@@ -112,7 +112,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Customer not found' }, { status: 404 });
     }
 
-    // Verify invoice if provided
     if (invoiceId) {
       const invoice = await db.invoice.findUnique({ where: { id: invoiceId } });
       if (!invoice) {
@@ -120,7 +119,6 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Verify the Pesapal gateway is enabled
     const gateway = await db.paymentGateway.findFirst({
       where: {
         organizationId,
@@ -136,12 +134,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Generate Pesapal tracking ID and merchant reference
     const pesapalTrackingId = `PSP-TZ-${generateRandomString(12)}`;
     const pesapalMerchantRef = `NKW-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
     const pesapalPaymentMethod = CHANNEL_NAME_MAP[paymentChannel] ?? paymentChannel.toUpperCase();
 
-    // Create the payment record with status "processing"
     const payment = await db.payment.create({
       data: {
         organizationId,
@@ -168,10 +164,9 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // Simulate async payment processing after 2 seconds
     setTimeout(async () => {
       try {
-        const isCompleted = Math.random() < 0.9; // 90% success rate
+        const isCompleted = Math.random() < 0.9;
         const newStatus = isCompleted ? 'completed' : 'failed';
 
         await db.$transaction(async (tx) => {
@@ -181,7 +176,6 @@ export async function POST(request: NextRequest) {
           });
 
           if (isCompleted && invoiceId) {
-            // Recalculate invoice status
             const updatedInvoice = await tx.invoice.findUnique({
               where: { id: invoiceId },
               include: { payments: { select: { id: true, amount: true, status: true } } },
@@ -224,7 +218,7 @@ export async function POST(request: NextRequest) {
       trackingId: pesapalTrackingId,
       merchantRef: pesapalMerchantRef,
       status: 'processing',
-      redirectUrl: null, // Simulated - no real redirect
+      redirectUrl: null,
       paymentMethods: PAYMENT_METHODS,
       payment: {
         id: payment.id,
@@ -235,10 +229,12 @@ export async function POST(request: NextRequest) {
       },
     }, { status: 201 });
   } catch (error: unknown) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('Pesapal POST error:', error);
     const message = error instanceof Error ? error.message : 'Failed to create Pesapal order';
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
-
 

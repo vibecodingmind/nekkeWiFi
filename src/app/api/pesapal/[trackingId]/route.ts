@@ -1,15 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { requireAuth, AuthError } from '@/lib/auth';
 
-// GET /api/pesapal/[trackingId] — Get payment details by Pesapal tracking ID
+// GET /api/pesapal/[trackingId]
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ trackingId: string }> }
 ) {
   try {
+    requireAuth(request);
     const { trackingId } = await params;
 
-    const payment = await db.payment.findUnique({
+    const payment = await db.payment.findFirst({
       where: { pesapalTrackingId: trackingId },
       include: {
         customer: {
@@ -66,6 +68,9 @@ export async function GET(
       organization: payment.organization,
     });
   } catch (error: unknown) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('Pesapal tracking GET error:', error);
     const message = error instanceof Error ? error.message : 'Failed to fetch payment details';
     return NextResponse.json({ error: message }, { status: 500 });

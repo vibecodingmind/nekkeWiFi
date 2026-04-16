@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { requirePermission, AuthError } from '@/lib/auth';
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    requirePermission(request, 'invoices.view');
     const { id } = await params;
 
     const invoice = await db.invoice.findUnique({
@@ -36,7 +38,6 @@ export async function GET(
       return NextResponse.json({ error: 'Invoice not found' }, { status: 404 });
     }
 
-    // Calculate paid amount
     const totalPaid = invoice.payments
       .filter((p) => p.status === 'completed')
       .reduce((sum, p) => sum + p.amount, 0);
@@ -49,6 +50,9 @@ export async function GET(
       balanceDue,
     });
   } catch (error: unknown) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('Invoice GET error:', error);
     const message = error instanceof Error ? error.message : 'Failed to fetch invoice';
     return NextResponse.json({ error: message }, { status: 500 });
@@ -60,6 +64,7 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    requirePermission(request, 'invoices.manage');
     const { id } = await params;
     const body = await request.json();
 
@@ -95,6 +100,9 @@ export async function PUT(
 
     return NextResponse.json(invoice);
   } catch (error: unknown) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('Invoice PUT error:', error);
     const message = error instanceof Error ? error.message : 'Failed to update invoice';
     return NextResponse.json({ error: message }, { status: 500 });
@@ -106,6 +114,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    requirePermission(request, 'invoices.delete');
     const { id } = await params;
 
     const existing = await db.invoice.findUnique({
@@ -128,6 +137,9 @@ export async function DELETE(
 
     return NextResponse.json({ message: 'Invoice deleted successfully' });
   } catch (error: unknown) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('Invoice DELETE error:', error);
     const message = error instanceof Error ? error.message : 'Failed to delete invoice';
     return NextResponse.json({ error: message }, { status: 500 });

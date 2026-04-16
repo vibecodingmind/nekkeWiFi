@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { Prisma } from '@prisma/client';
+import { requirePermission, getOrgFilter, AuthError } from '@/lib/auth';
 
 export async function GET(request: NextRequest) {
   try {
+    const authUser = requirePermission(request, 'payments.view');
     const { searchParams } = new URL(request.url);
-    const orgId = searchParams.get('orgId') ?? '';
+    const orgIdParam = searchParams.get('orgId') ?? '';
     const customerId = searchParams.get('customerId') ?? '';
     const method = searchParams.get('method') ?? '';
     const paymentChannel = searchParams.get('paymentChannel') ?? '';
@@ -13,9 +15,10 @@ export async function GET(request: NextRequest) {
     const startDateParam = searchParams.get('startDate') ?? '';
     const endDateParam = searchParams.get('endDate') ?? '';
 
-    const where: Prisma.PaymentWhereInput = {};
+    const orgId = getOrgFilter(authUser, orgIdParam || undefined);
 
-    if (orgId) where.organizationId = orgId;
+    const where: Prisma.PaymentWhereInput = { organizationId: orgId };
+
     if (customerId) where.customerId = customerId;
     if (method) where.method = method;
     if (paymentChannel) where.paymentChannel = paymentChannel;
@@ -42,7 +45,6 @@ export async function GET(request: NextRequest) {
       },
     });
 
-    // Calculate totals
     const completedPayments = payments.filter((p) => p.status === 'completed');
     const totalAmount = completedPayments.reduce((sum, p) => sum + p.amount, 0);
     const pesapalPayments = completedPayments.filter((p) => p.gateway === 'pesapal');
@@ -62,6 +64,9 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error: unknown) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('Payments GET error:', error);
     const message = error instanceof Error ? error.message : 'Failed to fetch payments';
     return NextResponse.json({ error: message }, { status: 500 });
@@ -70,6 +75,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const authUser = requirePermission(request, 'payments.manage');
     const body = await request.json();
     const {
       organizationId, customerId, invoiceId, amount, method,
@@ -77,20 +83,20 @@ export async function POST(request: NextRequest) {
       reference, status, receiptNumber, notes, paidAt,
     } = body;
 
-    if (!organizationId || !customerId || amount === undefined) {
+    const orgId = getOrgFilter(authUser, organizationId);
+
+    if (!orgId || !customerId || amount === undefined) {
       return NextResponse.json(
-        { error: 'organizationId, customerId, and amount are required' },
+        { error: 'customerId and amount are required' },
         { status: 400 }
       );
     }
 
-    // Verify customer exists
     const customer = await db.customer.findUnique({ where: { id: customerId } });
     if (!customer) {
       return NextResponse.json({ error: 'Customer not found' }, { status: 404 });
     }
 
-    // Verify invoice exists if provided
     if (invoiceId) {
       const invoice = await db.invoice.findUnique({
         where: { id: invoiceId },
@@ -101,14 +107,12 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Invoice not found' }, { status: 404 });
       }
 
-      // Calculate total paid so far
       const existingPaid = invoice.payments
         .filter((p) => p.status === 'completed')
         .reduce((sum, p) => sum + p.amount, 0);
 
       const newTotalPaid = existingPaid + amount;
 
-      // Determine new invoice status
       let newInvoiceStatus: string;
       if (newTotalPaid >= invoice.total) {
         newInvoiceStatus = 'paid';
@@ -118,11 +122,10 @@ export async function POST(request: NextRequest) {
         newInvoiceStatus = invoice.status;
       }
 
-      // Create payment and update invoice in a transaction
       const result = await db.$transaction(async (tx) => {
         const payment = await tx.payment.create({
           data: {
-            organizationId,
+            organizationId: orgId,
             customerId,
             invoiceId,
             amount,
@@ -157,10 +160,9 @@ export async function POST(request: NextRequest) {
 
       return NextResponse.json(result, { status: 201 });
     } else {
-      // No invoice, just create payment
       const payment = await db.payment.create({
         data: {
-          organizationId,
+          organizationId: orgId,
           customerId,
           amount,
           method: method ?? 'cash',
@@ -184,6 +186,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(payment, { status: 201 });
     }
   } catch (error: unknown) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('Payments POST error:', error);
     const message = error instanceof Error ? error.message : 'Failed to create payment';
     return NextResponse.json({ error: message }, { status: 500 });

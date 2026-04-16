@@ -1,24 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { Prisma } from '@prisma/client';
+import { requirePermission, getOrgFilter, AuthError } from '@/lib/auth';
 
 export async function GET(request: NextRequest) {
   try {
+    const authUser = requirePermission(request, 'usage.view');
     const { searchParams } = new URL(request.url);
-    const orgId = searchParams.get('orgId') ?? '';
+    const orgIdParam = searchParams.get('orgId') ?? '';
     const customerId = searchParams.get('customerId') ?? '';
     const subscriptionId = searchParams.get('subscriptionId') ?? '';
     const startDateParam = searchParams.get('startDate') ?? '';
     const endDateParam = searchParams.get('endDate') ?? '';
     const days = parseInt(searchParams.get('days') ?? '30', 10);
 
-    const where: Prisma.UsageRecordWhereInput = {};
+    const orgId = getOrgFilter(authUser, orgIdParam || undefined);
 
-    if (orgId) where.organizationId = orgId;
+    const where: Prisma.UsageRecordWhereInput = { organizationId: orgId };
+
     if (customerId) where.customerId = customerId;
     if (subscriptionId) where.subscriptionId = subscriptionId;
 
-    // Date range
     let startDate: Date;
     let endDate: Date;
 
@@ -33,7 +35,6 @@ export async function GET(request: NextRequest) {
 
     where.date = { gte: startDate, lte: endDate };
 
-    // Fetch usage records
     const records = await db.usageRecord.findMany({
       where,
       orderBy: { date: 'asc' },
@@ -47,7 +48,6 @@ export async function GET(request: NextRequest) {
       },
     });
 
-    // Aggregate daily totals
     const dailyAggregation: Record<string, { date: string; downloadBytes: number; uploadBytes: number; totalBytes: number; recordCount: number }> = {};
 
     for (const record of records) {
@@ -69,14 +69,12 @@ export async function GET(request: NextRequest) {
 
     const dailyData = Object.values(dailyAggregation).sort((a, b) => a.date.localeCompare(b.date));
 
-    // Current month summary
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
-    const currentMonthWhere: Prisma.UsageRecordWhereInput = { ...where };
+    const currentMonthWhere: Prisma.UsageRecordWhereInput = { organizationId: orgId };
     currentMonthWhere.date = { gte: monthStart };
 
-    if (orgId) currentMonthWhere.organizationId = orgId;
     if (customerId) currentMonthWhere.customerId = customerId;
     if (subscriptionId) currentMonthWhere.subscriptionId = subscriptionId;
 
@@ -90,7 +88,6 @@ export async function GET(request: NextRequest) {
       _count: true,
     });
 
-    // Per-customer aggregation for the period
     const customerAggregation = await db.usageRecord.groupBy({
       by: ['customerId'],
       where,
@@ -142,6 +139,9 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error: unknown) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('Usage GET error:', error);
     const message = error instanceof Error ? error.message : 'Failed to fetch usage data';
     return NextResponse.json({ error: message }, { status: 500 });

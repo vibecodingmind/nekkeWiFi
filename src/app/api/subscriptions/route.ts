@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { Prisma } from '@prisma/client';
+import { requirePermission, getOrgFilter, AuthError } from '@/lib/auth';
 
 function generatePPPoECredentials(customerId: string): { username: string; password: string } {
   const shortId = customerId.slice(-6).toUpperCase();
@@ -12,14 +13,16 @@ function generatePPPoECredentials(customerId: string): { username: string; passw
 
 export async function GET(request: NextRequest) {
   try {
+    const authUser = requirePermission(request, 'subscriptions.view');
     const { searchParams } = new URL(request.url);
-    const orgId = searchParams.get('orgId') ?? '';
+    const orgIdParam = searchParams.get('orgId') ?? '';
     const customerId = searchParams.get('customerId') ?? '';
     const status = searchParams.get('status') ?? '';
 
-    const where: Prisma.SubscriptionWhereInput = {};
+    const orgId = getOrgFilter(authUser, orgIdParam || undefined);
 
-    if (orgId) where.organizationId = orgId;
+    const where: Prisma.SubscriptionWhereInput = { organizationId: orgId };
+
     if (customerId) where.customerId = customerId;
     if (status) where.status = status;
 
@@ -45,6 +48,9 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(subscriptions);
   } catch (error: unknown) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('Subscriptions GET error:', error);
     const message = error instanceof Error ? error.message : 'Failed to fetch subscriptions';
     return NextResponse.json({ error: message }, { status: 500 });
@@ -53,6 +59,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const authUser = requirePermission(request, 'subscriptions.manage');
     const body = await request.json();
     const {
       organizationId, customerId, planId, deviceId, status,
@@ -60,26 +67,25 @@ export async function POST(request: NextRequest) {
       username, password, ipAssignment, notes,
     } = body;
 
-    if (!organizationId || !customerId || !planId) {
+    const orgId = getOrgFilter(authUser, organizationId);
+
+    if (!orgId || !customerId || !planId) {
       return NextResponse.json(
-        { error: 'organizationId, customerId, and planId are required' },
+        { error: 'customerId and planId are required' },
         { status: 400 }
       );
     }
 
-    // Verify customer exists
     const customer = await db.customer.findUnique({ where: { id: customerId } });
     if (!customer) {
       return NextResponse.json({ error: 'Customer not found' }, { status: 404 });
     }
 
-    // Verify plan exists
     const plan = await db.plan.findUnique({ where: { id: planId } });
     if (!plan) {
       return NextResponse.json({ error: 'Plan not found' }, { status: 404 });
     }
 
-    // Verify device exists if provided
     if (deviceId) {
       const device = await db.device.findUnique({ where: { id: deviceId } });
       if (!device) {
@@ -87,7 +93,6 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Auto-generate PPPoE credentials if not provided
     let pppoeUsername = username;
     let pppoePassword = password;
     if (!pppoeUsername || !pppoePassword) {
@@ -98,7 +103,7 @@ export async function POST(request: NextRequest) {
 
     const subscription = await db.subscription.create({
       data: {
-        organizationId,
+        organizationId: orgId,
         customerId,
         planId,
         deviceId,
@@ -121,6 +126,9 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(subscription, { status: 201 });
   } catch (error: unknown) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('Subscriptions POST error:', error);
     const message = error instanceof Error ? error.message : 'Failed to create subscription';
     return NextResponse.json({ error: message }, { status: 500 });

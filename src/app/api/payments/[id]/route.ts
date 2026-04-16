@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { requirePermission, AuthError } from '@/lib/auth';
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    requirePermission(request, 'payments.view');
     const { id } = await params;
 
     const payment = await db.payment.findUnique({
@@ -29,6 +31,9 @@ export async function GET(
 
     return NextResponse.json(payment);
   } catch (error: unknown) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('Payment GET error:', error);
     const message = error instanceof Error ? error.message : 'Failed to fetch payment';
     return NextResponse.json({ error: message }, { status: 500 });
@@ -40,6 +45,7 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    requirePermission(request, 'payments.manage');
     const { id } = await params;
     const body = await request.json();
 
@@ -70,6 +76,9 @@ export async function PUT(
 
     return NextResponse.json(payment);
   } catch (error: unknown) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('Payment PUT error:', error);
     const message = error instanceof Error ? error.message : 'Failed to update payment';
     return NextResponse.json({ error: message }, { status: 500 });
@@ -81,6 +90,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    requirePermission(request, 'payments.manage');
     const { id } = await params;
 
     const existing = await db.payment.findUnique({
@@ -100,11 +110,9 @@ export async function DELETE(
       return NextResponse.json({ error: 'Payment not found' }, { status: 404 });
     }
 
-    // Use a transaction to delete payment and revert invoice status
     await db.$transaction(async (tx) => {
       await tx.payment.delete({ where: { id } });
 
-      // If payment was linked to an invoice, recalculate invoice status
       if (existing.invoiceId && existing.invoice) {
         const invoice = existing.invoice;
         const remainingPayments = invoice.payments.filter((p) => p.id !== id);
@@ -133,6 +141,9 @@ export async function DELETE(
 
     return NextResponse.json({ message: 'Payment deleted successfully' });
   } catch (error: unknown) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('Payment DELETE error:', error);
     const message = error instanceof Error ? error.message : 'Failed to delete payment';
     return NextResponse.json({ error: message }, { status: 500 });

@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { requirePermission, AuthError } from '@/lib/auth';
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    requirePermission(request, 'subscriptions.view');
     const { id } = await params;
 
     const subscription = await db.subscription.findUnique({
@@ -43,6 +45,9 @@ export async function GET(
 
     return NextResponse.json(subscription);
   } catch (error: unknown) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('Subscription GET error:', error);
     const message = error instanceof Error ? error.message : 'Failed to fetch subscription';
     return NextResponse.json({ error: message }, { status: 500 });
@@ -54,6 +59,7 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    requirePermission(request, 'subscriptions.manage');
     const { id } = await params;
     const body = await request.json();
 
@@ -67,7 +73,6 @@ export async function PUT(
       billingCycle, autoRenew, username, password, ipAssignment, notes,
     } = body;
 
-    // Verify plan exists if changing
     if (planId) {
       const plan = await db.plan.findUnique({ where: { id: planId } });
       if (!plan) {
@@ -75,7 +80,6 @@ export async function PUT(
       }
     }
 
-    // Verify device exists if changing
     if (deviceId) {
       const device = await db.device.findUnique({ where: { id: deviceId } });
       if (!device) {
@@ -107,6 +111,9 @@ export async function PUT(
 
     return NextResponse.json(subscription);
   } catch (error: unknown) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('Subscription PUT error:', error);
     const message = error instanceof Error ? error.message : 'Failed to update subscription';
     return NextResponse.json({ error: message }, { status: 500 });
@@ -118,6 +125,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    requirePermission(request, 'subscriptions.delete');
     const { id } = await params;
 
     const existing = await db.subscription.findUnique({ where: { id } });
@@ -129,6 +137,9 @@ export async function DELETE(
 
     return NextResponse.json({ message: 'Subscription deleted successfully' });
   } catch (error: unknown) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('Subscription DELETE error:', error);
     const message = error instanceof Error ? error.message : 'Failed to delete subscription';
     return NextResponse.json({ error: message }, { status: 500 });

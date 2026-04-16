@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { requirePermission, AuthError } from '@/lib/auth';
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    requirePermission(request, 'devices.view');
     const { id } = await params;
 
     const device = await db.device.findUnique({
@@ -30,6 +32,9 @@ export async function GET(
 
     return NextResponse.json(device);
   } catch (error: unknown) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('Device GET error:', error);
     const message = error instanceof Error ? error.message : 'Failed to fetch device';
     return NextResponse.json({ error: message }, { status: 500 });
@@ -41,6 +46,7 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    requirePermission(request, 'devices.manage');
     const { id } = await params;
     const body = await request.json();
 
@@ -94,6 +100,9 @@ export async function PUT(
 
     return NextResponse.json(device);
   } catch (error: unknown) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('Device PUT error:', error);
     const message = error instanceof Error ? error.message : 'Failed to update device';
     return NextResponse.json({ error: message }, { status: 500 });
@@ -105,6 +114,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    requirePermission(request, 'devices.delete');
     const { id } = await params;
 
     const existing = await db.device.findUnique({ where: { id } });
@@ -116,6 +126,9 @@ export async function DELETE(
 
     return NextResponse.json({ message: 'Device deleted successfully' });
   } catch (error: unknown) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('Device DELETE error:', error);
     const message = error instanceof Error ? error.message : 'Failed to delete device';
     return NextResponse.json({ error: message }, { status: 500 });

@@ -20,6 +20,7 @@ interface AuthState {
   logout: () => void;
   setLoading: (loading: boolean) => void;
   hasPermission: (permission: string) => boolean;
+  validateSession: () => Promise<boolean>;
 }
 
 // Role permissions map
@@ -71,6 +72,7 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
 };
 
 const SESSION_KEY = 'nekkewifi_session';
+const TOKEN_KEY = 'nekkewifi_token';
 
 function restoreSession(): AuthUser | null {
   if (typeof window === 'undefined') return null;
@@ -85,13 +87,40 @@ function restoreSession(): AuthUser | null {
   return null;
 }
 
-function persistSession(user: AuthUser | null) {
+function getToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    return localStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function persistSession(user: AuthUser | null, token: string | null = null) {
   if (typeof window === 'undefined') return;
   if (user) {
     localStorage.setItem(SESSION_KEY, JSON.stringify(user));
+    if (token) {
+      localStorage.setItem(TOKEN_KEY, token);
+    }
   } else {
     localStorage.removeItem(SESSION_KEY);
+    localStorage.removeItem(TOKEN_KEY);
   }
+}
+
+// Create an authenticated fetch wrapper that includes the JWT token
+export function authFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const token = getToken();
+  const headers = new Headers(init?.headers);
+
+  // Only set Authorization header if no explicit header is provided
+  // and we have a token
+  if (token && !headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+
+  return fetch(input, { ...init, headers });
 }
 
 export const useAuthStore = create<AuthState>((set, get) => {
@@ -117,9 +146,9 @@ export const useAuthStore = create<AuthState>((set, get) => {
           throw new Error(data.error || 'Login failed');
         }
 
-        const { user } = data;
+        const { user, token } = data;
         set({ user, isAuthenticated: true, isLoading: false });
-        persistSession(user);
+        persistSession(user, token);
       } catch (error) {
         set({ isLoading: false });
         throw error;
@@ -140,6 +169,37 @@ export const useAuthStore = create<AuthState>((set, get) => {
       if (!user) return false;
       const permissions = ROLE_PERMISSIONS[user.role];
       return permissions ? permissions.includes(permission) : false;
+    },
+
+    validateSession: async () => {
+      const token = getToken();
+      if (!token) return false;
+
+      try {
+        const response = await fetch('/api/auth', {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        });
+
+        if (!response.ok) {
+          // Token is invalid, clear session
+          const { logout } = get();
+          logout();
+          return false;
+        }
+
+        const data = await response.json();
+        if (data.user) {
+          set({ user: data.user, isAuthenticated: true });
+          persistSession(data.user, token);
+          return true;
+        }
+
+        return false;
+      } catch {
+        return false;
+      }
     },
   };
 });

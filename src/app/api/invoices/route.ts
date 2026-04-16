@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { Prisma } from '@prisma/client';
+import { requirePermission, getOrgFilter, AuthError } from '@/lib/auth';
 
 async function generateInvoiceNumber(orgId: string): Promise<string> {
   const now = new Date();
   const yearMonth = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`;
   const prefix = `INV-${yearMonth}`;
 
-  // Find the latest invoice with this prefix for the org
   const latestInvoice = await db.invoice.findFirst({
     where: {
       organizationId: orgId,
@@ -29,8 +29,9 @@ async function generateInvoiceNumber(orgId: string): Promise<string> {
 
 export async function GET(request: NextRequest) {
   try {
+    const authUser = requirePermission(request, 'invoices.view');
     const { searchParams } = new URL(request.url);
-    const orgId = searchParams.get('orgId') ?? '';
+    const orgIdParam = searchParams.get('orgId') ?? '';
     const customerId = searchParams.get('customerId') ?? '';
     const status = searchParams.get('status') ?? '';
     const page = parseInt(searchParams.get('page') ?? '1', 10);
@@ -38,9 +39,10 @@ export async function GET(request: NextRequest) {
 
     const skip = (page - 1) * limit;
 
-    const where: Prisma.InvoiceWhereInput = {};
+    const orgId = getOrgFilter(authUser, orgIdParam || undefined);
 
-    if (orgId) where.organizationId = orgId;
+    const where: Prisma.InvoiceWhereInput = { organizationId: orgId };
+
     if (customerId) where.customerId = customerId;
     if (status) where.status = status;
 
@@ -78,6 +80,9 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error: unknown) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('Invoices GET error:', error);
     const message = error instanceof Error ? error.message : 'Failed to fetch invoices';
     return NextResponse.json({ error: message }, { status: 500 });
@@ -86,31 +91,32 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const authUser = requirePermission(request, 'invoices.manage');
     const body = await request.json();
     const {
       organizationId, customerId, subscriptionId, subtotal,
       tax, discount, total, dueDate, notes, lineItems,
     } = body;
 
-    if (!organizationId || !customerId || total === undefined || !dueDate) {
+    const orgId = getOrgFilter(authUser, organizationId);
+
+    if (!orgId || !customerId || total === undefined || !dueDate) {
       return NextResponse.json(
-        { error: 'organizationId, customerId, total, and dueDate are required' },
+        { error: 'customerId, total, and dueDate are required' },
         { status: 400 }
       );
     }
 
-    // Verify customer exists
     const customer = await db.customer.findUnique({ where: { id: customerId } });
     if (!customer) {
       return NextResponse.json({ error: 'Customer not found' }, { status: 404 });
     }
 
-    // Generate invoice number
-    const invoiceNumber = await generateInvoiceNumber(organizationId);
+    const invoiceNumber = await generateInvoiceNumber(orgId);
 
     const invoice = await db.invoice.create({
       data: {
-        organizationId,
+        organizationId: orgId,
         customerId,
         subscriptionId,
         invoiceNumber,
@@ -142,6 +148,9 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(invoice, { status: 201 });
   } catch (error: unknown) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('Invoices POST error:', error);
     const message = error instanceof Error ? error.message : 'Failed to create invoice';
     return NextResponse.json({ error: message }, { status: 500 });

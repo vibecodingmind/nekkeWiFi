@@ -1,18 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { Prisma } from '@prisma/client';
+import { requirePermission, getOrgFilter, AuthError } from '@/lib/auth';
 
 export async function GET(request: NextRequest) {
   try {
+    const authUser = requirePermission(request, 'devices.view');
     const { searchParams } = new URL(request.url);
-    const orgId = searchParams.get('orgId') ?? '';
+    const orgIdParam = searchParams.get('orgId') ?? '';
     const type = searchParams.get('type') ?? '';
     const category = searchParams.get('category') ?? '';
     const status = searchParams.get('status') ?? '';
 
-    const where: Prisma.DeviceWhereInput = {};
+    const orgId = getOrgFilter(authUser, orgIdParam || undefined);
 
-    if (orgId) where.organizationId = orgId;
+    const where: Prisma.DeviceWhereInput = { organizationId: orgId };
+
     if (type) where.type = type;
     if (category) where.category = category;
     if (status) where.status = status;
@@ -34,6 +37,9 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(devices);
   } catch (error: unknown) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('Devices GET error:', error);
     const message = error instanceof Error ? error.message : 'Failed to fetch devices';
     return NextResponse.json({ error: message }, { status: 500 });
@@ -42,6 +48,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const authUser = requirePermission(request, 'devices.manage');
     const body = await request.json();
     const {
       organizationId, name, type, category, model, ipAddress, port,
@@ -52,22 +59,24 @@ export async function POST(request: NextRequest) {
       capabilities, configProfile,
     } = body;
 
-    if (!organizationId || !name || !type || !ipAddress || !apiUser || !apiPassword) {
+    const orgId = getOrgFilter(authUser, organizationId);
+
+    if (!orgId || !name || !type || !ipAddress || !apiUser || !apiPassword) {
       return NextResponse.json(
-        { error: 'organizationId, name, type, ipAddress, apiUser, and apiPassword are required' },
+        { error: 'name, type, ipAddress, apiUser, and apiPassword are required' },
         { status: 400 }
       );
     }
 
     // Verify organization exists
-    const org = await db.organization.findUnique({ where: { id: organizationId } });
+    const org = await db.organization.findUnique({ where: { id: orgId } });
     if (!org) {
       return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
     }
 
     const device = await db.device.create({
       data: {
-        organizationId,
+        organizationId: orgId,
         name,
         type,
         category: category ?? 'router',
@@ -101,6 +110,9 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(device, { status: 201 });
   } catch (error: unknown) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('Devices POST error:', error);
     const message = error instanceof Error ? error.message : 'Failed to create device';
     return NextResponse.json({ error: message }, { status: 500 });

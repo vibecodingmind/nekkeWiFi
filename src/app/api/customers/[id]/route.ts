@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { requirePermission, getOrgFilter, AuthError } from '@/lib/auth';
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    requirePermission(request, 'customers.view');
     const { id } = await params;
 
     const customer = await db.customer.findUnique({
@@ -40,6 +42,9 @@ export async function GET(
 
     return NextResponse.json(customer);
   } catch (error: unknown) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('Customer GET error:', error);
     const message = error instanceof Error ? error.message : 'Failed to fetch customer';
     return NextResponse.json({ error: message }, { status: 500 });
@@ -51,6 +56,7 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    requirePermission(request, 'customers.manage');
     const { id } = await params;
     const body = await request.json();
 
@@ -82,6 +88,9 @@ export async function PUT(
 
     return NextResponse.json(customer);
   } catch (error: unknown) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('Customer PUT error:', error);
     const message = error instanceof Error ? error.message : 'Failed to update customer';
     return NextResponse.json({ error: message }, { status: 500 });
@@ -93,6 +102,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    requirePermission(request, 'customers.delete');
     const { id } = await params;
 
     const existing = await db.customer.findUnique({ where: { id } });
@@ -104,6 +114,9 @@ export async function DELETE(
 
     return NextResponse.json({ message: 'Customer deleted successfully' });
   } catch (error: unknown) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('Customer DELETE error:', error);
     const message = error instanceof Error ? error.message : 'Failed to delete customer';
     return NextResponse.json({ error: message }, { status: 500 });

@@ -36,7 +36,7 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Plus, FileText, Eye } from 'lucide-react';
+import { Plus, FileText, Eye, Printer } from 'lucide-react';
 import { formatTZS, formatDate, getStatusColor } from '@/lib/helpers';
 
 interface InvoicesPageProps {
@@ -375,9 +375,19 @@ export default function InvoicesPage({ orgId }: InvoicesPageProps) {
                             {formatDate(invoice.dueDate)}
                           </TableCell>
                           <TableCell className="text-right">
-                            <Button variant="ghost" size="sm" onClick={() => viewInvoice(invoice.id)}>
-                              <Eye className="h-4 w-4" />
-                            </Button>
+                            <div className="flex items-center justify-end gap-1">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => window.open(`/api/invoices/${invoice.id}/print?orgId=${orgId}`, '_blank')}
+                                title="Print Invoice"
+                              >
+                                <Printer className="h-4 w-4" />
+                              </Button>
+                              <Button variant="ghost" size="sm" onClick={() => viewInvoice(invoice.id)}>
+                                <Eye className="h-4 w-4" />
+                              </Button>
+                            </div>
                           </TableCell>
                         </TableRow>
                       ))

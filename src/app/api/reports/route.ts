@@ -1,14 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { Prisma } from '@prisma/client';
+import { requirePermission, getOrgFilter, AuthError } from '@/lib/auth';
 
 export async function GET(request: NextRequest) {
   try {
+    const authUser = requirePermission(request, 'reports.view');
     const { searchParams } = new URL(request.url);
-    const orgId = searchParams.get('orgId') ?? '';
+    const orgIdParam = searchParams.get('orgId') ?? '';
     const reportType = searchParams.get('type') ?? 'revenue';
 
-    const whereOrg: Prisma.OrganizationWhereInput = orgId ? { id: orgId } : {};
+    const orgId = getOrgFilter(authUser, orgIdParam || undefined);
+
+    const whereOrg: Prisma.OrganizationWhereInput = { id: orgId };
 
     switch (reportType) {
       case 'revenue':
@@ -28,6 +32,9 @@ export async function GET(request: NextRequest) {
         );
     }
   } catch (error: unknown) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('Reports GET error:', error);
     const message = error instanceof Error ? error.message : 'Failed to generate report';
     return NextResponse.json({ error: message }, { status: 500 });
@@ -35,7 +42,7 @@ export async function GET(request: NextRequest) {
 }
 
 // ──────────────────────────────────────────
-// REVENUE REPORT: monthly revenue for last 12 months
+// REVENUE REPORT
 // ──────────────────────────────────────────
 async function getRevenueReport(whereOrg: Prisma.OrganizationWhereInput) {
   const now = new Date();
@@ -88,7 +95,6 @@ async function getRevenueReport(whereOrg: Prisma.OrganizationWhereInput) {
     });
   }
 
-  // Payment method breakdown (all time)
   const methodBreakdown = await db.payment.groupBy({
     by: ['method'],
     where: {
@@ -100,7 +106,6 @@ async function getRevenueReport(whereOrg: Prisma.OrganizationWhereInput) {
     orderBy: { _sum: { amount: 'desc' } },
   });
 
-  // Total metrics
   const totalRevenue = await db.payment.aggregate({
     where: { status: 'completed', organization: whereOrg },
     _sum: { amount: true },
@@ -121,19 +126,17 @@ async function getRevenueReport(whereOrg: Prisma.OrganizationWhereInput) {
 }
 
 // ──────────────────────────────────────────
-// SUBSCRIBERS REPORT: growth, churn, status distribution
+// SUBSCRIBERS REPORT
 // ──────────────────────────────────────────
 async function getSubscribersReport(whereOrg: Prisma.OrganizationWhereInput) {
   const now = new Date();
 
-  // Current status distribution
   const statusDistribution = await db.customer.groupBy({
     by: ['status'],
     where: { organization: whereOrg },
     _count: { id: true },
   });
 
-  // Monthly new subscribers (last 12 months)
   const monthlyNewSubscribers: Array<{
     month: string; year: number; monthIndex: number;
     newCustomers: number; newSubscriptions: number;
@@ -165,14 +168,12 @@ async function getSubscribersReport(whereOrg: Prisma.OrganizationWhereInput) {
     });
   }
 
-  // Subscription status breakdown
   const subscriptionStatus = await db.subscription.groupBy({
     by: ['status'],
     where: { organization: whereOrg },
     _count: { id: true },
   });
 
-  // Churn rate calculation (cancelled/expired subscriptions this month vs total active)
   const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
   const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
   const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
@@ -216,13 +217,12 @@ async function getSubscribersReport(whereOrg: Prisma.OrganizationWhereInput) {
 }
 
 // ──────────────────────────────────────────
-// USAGE REPORT: bandwidth per plan, top consumers
+// USAGE REPORT
 // ──────────────────────────────────────────
 async function getUsageReport(whereOrg: Prisma.OrganizationWhereInput) {
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
-  // Bandwidth usage per plan (current month)
   const usagePerPlan = await db.usageRecord.groupBy({
     by: ['subscriptionId'],
     where: {
@@ -236,7 +236,6 @@ async function getUsageReport(whereOrg: Prisma.OrganizationWhereInput) {
     },
   });
 
-  // Aggregate by plan
   const planUsageMap: Record<string, {
     planId: string;
     planName: string;
@@ -272,7 +271,6 @@ async function getUsageReport(whereOrg: Prisma.OrganizationWhereInput) {
 
   const planUsageData = Object.values(planUsageMap).sort((a, b) => b.totalBytes - a.totalBytes);
 
-  // Top consumers (current month)
   const topConsumersRaw = await db.usageRecord.groupBy({
     by: ['customerId'],
     where: {
@@ -303,7 +301,6 @@ async function getUsageReport(whereOrg: Prisma.OrganizationWhereInput) {
     })
   );
 
-  // Daily usage trend (current month)
   const dailyUsage = await db.usageRecord.groupBy({
     by: ['date'],
     where: {
@@ -325,7 +322,6 @@ async function getUsageReport(whereOrg: Prisma.OrganizationWhereInput) {
     totalBytes: d._sum.totalBytes ?? 0,
   }));
 
-  // Total summary
   const totalUsage = await db.usageRecord.aggregate({
     where: {
       organization: whereOrg,
@@ -356,7 +352,7 @@ async function getUsageReport(whereOrg: Prisma.OrganizationWhereInput) {
 }
 
 // ──────────────────────────────────────────
-// PLANS REPORT: popularity, revenue per plan
+// PLANS REPORT
 // ──────────────────────────────────────────
 async function getPlansReport(whereOrg: Prisma.OrganizationWhereInput) {
   const plans = await db.plan.findMany({
@@ -371,7 +367,6 @@ async function getPlansReport(whereOrg: Prisma.OrganizationWhereInput) {
     orderBy: { priceMonthly: 'desc' },
   });
 
-  // Get subscription counts by status for each plan
   const planStatusCounts: Record<string, Record<string, number>> = {};
   const allPlanSubs = await db.subscription.groupBy({
     by: ['planId', 'status'],
@@ -412,7 +407,6 @@ async function getPlansReport(whereOrg: Prisma.OrganizationWhereInput) {
     };
   });
 
-  // Sort by MRR
   planData.sort((a, b) => b.mrr - a.mrr);
 
   const totalMrr = planData.reduce((sum, p) => sum + p.mrr, 0);
@@ -433,12 +427,11 @@ async function getPlansReport(whereOrg: Prisma.OrganizationWhereInput) {
 }
 
 // ──────────────────────────────────────────
-// CHURN REPORT: churned subscribers, revenue loss
+// CHURN REPORT
 // ──────────────────────────────────────────
 async function getChurnReport(whereOrg: Prisma.OrganizationWhereInput) {
   const now = new Date();
 
-  // Churned subscriptions (cancelled or expired) in last 12 months
   const monthlyChurn: Array<{
     month: string; year: number; monthIndex: number;
     totalChurned: number; cancelled: number; expired: number;
@@ -490,7 +483,6 @@ async function getChurnReport(whereOrg: Prisma.OrganizationWhereInput) {
     });
   }
 
-  // All churned subscriptions with details
   const allChurned = await db.subscription.findMany({
     where: {
       status: { in: ['cancelled', 'expired'] },
