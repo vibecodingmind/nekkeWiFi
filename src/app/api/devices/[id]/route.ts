@@ -50,8 +50,12 @@ export async function PUT(
     }
 
     const {
-      name, type, model, ipAddress, port, apiUser, apiPassword,
+      name, type, category, model, ipAddress, port,
+      connectionProtocol, apiUser, apiPassword,
+      snmpVersion, snmpCommunity, sshPort, sshKey, acsUrl,
       firmware, serialNumber, location, status, totalBandwidth,
+      cpuUsage, memoryUsage, uptime, temperature,
+      capabilities, configProfile,
     } = body;
 
     const device = await db.device.update({
@@ -59,16 +63,29 @@ export async function PUT(
       data: {
         ...(name !== undefined && { name }),
         ...(type !== undefined && { type }),
+        ...(category !== undefined && { category }),
         ...(model !== undefined && { model }),
         ...(ipAddress !== undefined && { ipAddress }),
         ...(port !== undefined && { port }),
+        ...(connectionProtocol !== undefined && { connectionProtocol }),
         ...(apiUser !== undefined && { apiUser }),
         ...(apiPassword !== undefined && { apiPassword }),
+        ...(snmpVersion !== undefined && { snmpVersion }),
+        ...(snmpCommunity !== undefined && { snmpCommunity }),
+        ...(sshPort !== undefined && { sshPort }),
+        ...(sshKey !== undefined && { sshKey }),
+        ...(acsUrl !== undefined && { acsUrl }),
         ...(firmware !== undefined && { firmware }),
         ...(serialNumber !== undefined && { serialNumber }),
         ...(location !== undefined && { location }),
         ...(status !== undefined && { status }),
         ...(totalBandwidth !== undefined && { totalBandwidth }),
+        ...(cpuUsage !== undefined && { cpuUsage: Number(cpuUsage) }),
+        ...(memoryUsage !== undefined && { memoryUsage: Number(memoryUsage) }),
+        ...(uptime !== undefined && { uptime: Number(uptime) }),
+        ...(temperature !== undefined && { temperature: Number(temperature) }),
+        ...(capabilities !== undefined && { capabilities }),
+        ...(configProfile !== undefined && { configProfile }),
       },
       include: {
         organization: { select: { id: true, name: true } },

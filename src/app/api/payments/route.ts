@@ -8,6 +8,8 @@ export async function GET(request: NextRequest) {
     const orgId = searchParams.get('orgId') ?? '';
     const customerId = searchParams.get('customerId') ?? '';
     const method = searchParams.get('method') ?? '';
+    const paymentChannel = searchParams.get('paymentChannel') ?? '';
+    const gateway = searchParams.get('gateway') ?? '';
     const startDateParam = searchParams.get('startDate') ?? '';
     const endDateParam = searchParams.get('endDate') ?? '';
 
@@ -16,6 +18,8 @@ export async function GET(request: NextRequest) {
     if (orgId) where.organizationId = orgId;
     if (customerId) where.customerId = customerId;
     if (method) where.method = method;
+    if (paymentChannel) where.paymentChannel = paymentChannel;
+    if (gateway) where.gateway = gateway;
 
     if (startDateParam && endDateParam) {
       where.paidAt = {
@@ -62,6 +66,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const {
       organizationId, customerId, invoiceId, amount, method,
+      paymentChannel, gateway, pesapalTrackingId, pesapalMerchantRef, pesapalPaymentMethod,
       reference, status, receiptNumber, notes, paidAt,
     } = body;
 
@@ -115,6 +120,11 @@ export async function POST(request: NextRequest) {
             invoiceId,
             amount,
             method: method ?? 'cash',
+            paymentChannel,
+            gateway,
+            pesapalTrackingId,
+            pesapalMerchantRef,
+            pesapalPaymentMethod,
             reference,
             status: status ?? 'completed',
             receiptNumber,
@@ -147,6 +157,11 @@ export async function POST(request: NextRequest) {
           customerId,
           amount,
           method: method ?? 'cash',
+          paymentChannel,
+          gateway,
+          pesapalTrackingId,
+          pesapalMerchantRef,
+          pesapalPaymentMethod,
           reference,
           status: status ?? 'completed',
           receiptNumber,

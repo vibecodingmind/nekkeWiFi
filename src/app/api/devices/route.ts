@@ -7,12 +7,14 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const orgId = searchParams.get('orgId') ?? '';
     const type = searchParams.get('type') ?? '';
+    const category = searchParams.get('category') ?? '';
     const status = searchParams.get('status') ?? '';
 
     const where: Prisma.DeviceWhereInput = {};
 
     if (orgId) where.organizationId = orgId;
     if (type) where.type = type;
+    if (category) where.category = category;
     if (status) where.status = status;
 
     const devices = await db.device.findMany({
@@ -42,8 +44,12 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const {
-      organizationId, name, type, model, ipAddress, port,
-      apiUser, apiPassword, firmware, serialNumber, location, status, totalBandwidth,
+      organizationId, name, type, category, model, ipAddress, port,
+      connectionProtocol, apiUser, apiPassword,
+      snmpVersion, snmpCommunity, sshPort, sshKey, acsUrl,
+      firmware, serialNumber, location, status, totalBandwidth,
+      cpuUsage, memoryUsage, uptime, temperature,
+      capabilities, configProfile,
     } = body;
 
     if (!organizationId || !name || !type || !ipAddress || !apiUser || !apiPassword) {
@@ -64,16 +70,29 @@ export async function POST(request: NextRequest) {
         organizationId,
         name,
         type,
+        category: category ?? 'router',
         model,
         ipAddress,
         port: port ?? 8728,
+        connectionProtocol: connectionProtocol ?? 'api',
         apiUser,
         apiPassword,
+        snmpVersion,
+        snmpCommunity,
+        sshPort,
+        sshKey,
+        acsUrl,
         firmware,
         serialNumber,
         location,
         status: status ?? 'online',
         totalBandwidth,
+        cpuUsage: cpuUsage !== undefined ? Number(cpuUsage) : undefined,
+        memoryUsage: memoryUsage !== undefined ? Number(memoryUsage) : undefined,
+        uptime: uptime !== undefined ? Number(uptime) : undefined,
+        temperature: temperature !== undefined ? Number(temperature) : undefined,
+        capabilities,
+        configProfile,
       },
       include: {
         organization: { select: { id: true, name: true } },

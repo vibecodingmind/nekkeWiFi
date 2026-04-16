@@ -33,6 +33,28 @@ model Organization {
   invoices      Invoice[]
   payments      Payment[]
   usageRecords  UsageRecord[]
+  paymentGateways PaymentGateway[]
+}
+
+// ============================================
+// PAYMENT GATEWAY CONFIGURATION (Pesapal, etc.)
+// ============================================
+model PaymentGateway {
+  id             String   @id @default(cuid())
+  organizationId String
+  gateway        String   @default("pesapal") // pesapal, flutterwave, stripe
+  consumerKey    String?
+  consumerSecret String?
+  apiKey         String?
+  isLive         Boolean  @default(false) // sandbox vs live
+  isEnabled      Boolean  @default(true)
+  callbackUrl    String?
+  ipnUrl         String?
+  configJson     String?  // additional config as JSON
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 }
 
 // ============================================
@@ -81,24 +103,47 @@ model Customer {
 }
 
 // ============================================
-// NETWORK DEVICES (MikroTik, TP-Link, etc.)
+// NETWORK DEVICES (Universal - MikroTik, TP-Link, Huawei, ZTE, Cambium, etc.)
 // ============================================
 model Device {
   id             String   @id @default(cuid())
   organizationId String
   name           String
-  type           String   // mikrotik, tplink, juniper, cisco, ubiquiti, generic
+  // Device vendor/brand
+  type           String   // mikrotik, tplink, huawei, zte, cisco, juniper, ubiquiti, cambium, nokia, ericsson, generic
+  // Device category
+  category       String   @default("router") // router, switch, access_point, ont, olt, modem, firewall, radio, balancer, gateway
   model          String?
   ipAddress      String
   port           Int      @default(8728)
+  // Connection protocols
+  connectionProtocol String @default("api") // api, snmp, ssh, rest, tr069, telnet
   apiUser        String
   apiPassword    String
+  // SNMP-specific
+  snmpVersion    String?  // v1, v2c, v3
+  snmpCommunity  String?  // public, private
+  // SSH-specific
+  sshPort        Int?
+  sshKey         String?
+  // TR-069 specific (ONT/OLT)
+  acsUrl         String?
+  // Device info
   firmware       String?
   serialNumber   String?
   location       String?
   status         String   @default("online") // online, offline, warning, maintenance
   lastSeenAt     DateTime?
   totalBandwidth String?  // e.g. "1Gbps"
+  // Health metrics
+  cpuUsage       Float?   // percentage 0-100
+  memoryUsage    Float?   // percentage 0-100
+  uptime         Int?     // seconds
+  temperature    Float?   // celsius
+  // Capabilities (comma-separated)
+  capabilities   String?  // bandwidth_shaping,pppoe_server,dhcp_server,firewall,vlan,qos,nat,routing,hotspot
+  // Configuration profile name
+  configProfile  String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -114,13 +159,17 @@ model Device {
 model DeviceInterface {
   id        String  @id @default(cuid())
   deviceId  String
-  name      String  // e.g. "ether1", "sfp1"
-  type      String? // ethernet, sfp, wireless, bridge
+  name      String  // e.g. "ether1", "sfp1", "gpon-olt-1"
+  type      String? // ethernet, sfp, wireless, bridge, pon, gpon, epon, vdsl, adsl, pon_olt, pon_ont
   macAddress String?
   status    String  @default("up") // up, down, disabled
   speed     String? // e.g. "1Gbps"
   rxBytes   Int     @default(0)
   txBytes   Int     @default(0)
+  // PON-specific
+  opticalRxPower Float? // dBm (for ONT/OLT)
+  opticalTxPower Float? // dBm
+  distance        Float? // km (fiber distance)
 
   device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
 }
@@ -136,7 +185,7 @@ model ProvisioningRule {
   speedDown String? // e.g. "50Mbps"
   speedUp   String? // e.g. "10Mbps"
   dataCap   Int?    // MB, null = unlimited
-  queueType String  @default("simple") // simple, pcq, tree
+  queueType String  @default("simple") // simple, pcq, tree, queue_tree
   priority  Int     @default(1)
   isActive  Boolean @default(true)
 
@@ -261,21 +310,29 @@ model InvoiceLineItem {
 }
 
 // ============================================
-// PAYMENTS
+// PAYMENTS (with Pesapal gateway support)
 // ============================================
 model Payment {
-  id             String   @id @default(cuid())
-  organizationId String
-  customerId     String
-  invoiceId      String?
-  amount         Float
-  method         String   @default("cash") // cash, bank_transfer, mobile_money, card, online
-  reference      String?
-  status         String   @default("completed") // completed, pending, failed, refunded
-  receiptNumber  String?
-  notes          String?
-  paidAt         DateTime @default(now())
-  createdAt      DateTime @default(now())
+  id                    String   @id @default(cuid())
+  organizationId        String
+  customerId            String
+  invoiceId             String?
+  amount                Float
+  method                String   @default("cash") // cash, bank_transfer, mobile_money, card, pesapal, online
+  // Specific payment channel (for Pesapal/mobile money)
+  paymentChannel        String?  // mpesa, airtel_money, tigo_pesa, halotel, ttcl_pesa, visa, mastercard, pesapal_card, pesapal_bank
+  // Pesapal specific fields
+  gateway               String?  // pesapal, manual
+  pesapalTrackingId     String?
+  pesapalMerchantRef    String?
+  pesapalPaymentMethod  String?  // M-PESA, AIRTEL MONEY, TIGO PESA, VISA, MASTERCARD, etc.
+  // General
+  reference             String?
+  status                String   @default("completed") // completed, pending, failed, refunded, processing
+  receiptNumber         String?
+  notes                 String?
+  paidAt                DateTime @default(now())
+  createdAt             DateTime @default(now())
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   customer     Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)

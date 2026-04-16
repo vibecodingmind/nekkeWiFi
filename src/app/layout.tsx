@@ -14,24 +14,19 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Z.ai Code Scaffold - AI-Powered Development",
-  description: "Modern Next.js scaffold optimized for AI-powered development with Z.ai. Built with TypeScript, Tailwind CSS, and shadcn/ui.",
-  keywords: ["Z.ai", "Next.js", "TypeScript", "Tailwind CSS", "shadcn/ui", "AI development", "React"],
-  authors: [{ name: "Z.ai Team" }],
-  icons: {
-    icon: "https://z-cdn.chatglm.cn/z-ai/static/logo.svg",
-  },
+  title: "nekkeWiFi - ISP Billing & Network Management",
+  description: "Multi-tenant ISP billing platform with universal device management for MikroTik, TP-Link, Huawei, ZTE, Airtel 5G, ONT/OLT and Pesapal payments.",
+  keywords: ["nekkeWiFi", "ISP Billing", "Network Management", "MikroTik", "Pesapal", "5G Router", "ONT", "OLT", "Tanzania ISP"],
+  authors: [{ name: "nekkeWiFi Team" }],
   openGraph: {
-    title: "Z.ai Code Scaffold",
-    description: "AI-powered development with modern React stack",
-    url: "https://chat.z.ai",
-    siteName: "Z.ai",
+    title: "nekkeWiFi - ISP Billing & Network Management",
+    description: "Multi-tenant ISP billing platform with universal device management and Pesapal payments",
     type: "website",
   },
   twitter: {
     card: "summary_large_image",
-    title: "Z.ai Code Scaffold",
-    description: "AI-powered development with modern React stack",
+    title: "nekkeWiFi - ISP Billing & Network Management",
+    description: "Multi-tenant ISP billing platform with universal device management and Pesapal payments",
   },
 };
 

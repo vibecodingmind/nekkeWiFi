@@ -151,8 +151,11 @@ function AppContent() {
               <Globe className="h-5 w-5 text-white" />
             </div>
             <div>
-              <h2 className="font-bold text-sm tracking-tight">ISP Billing</h2>
-              <p className="text-xs text-zinc-400">Management Platform</p>
+              <h2 className="font-bold text-lg tracking-tight">
+                <span className="text-emerald-400">nekke</span>
+                <span className="text-white">WiFi</span>
+              </h2>
+              <p className="text-xs text-zinc-400">Billing & Network Platform</p>
             </div>
           </div>
           <Button
@@ -205,12 +208,12 @@ function AppContent() {
           <div className="flex items-center gap-3">
             <Avatar className="h-8 w-8">
               <AvatarFallback className="bg-emerald-600 text-white text-xs font-semibold">
-                AD
+                NK
               </AvatarFallback>
             </Avatar>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium truncate">Admin User</p>
-              <p className="text-xs text-zinc-400 truncate">admin@ispbilling.com</p>
+              <p className="text-sm font-medium truncate">nekkeWiFi Admin</p>
+              <p className="text-xs text-zinc-400 truncate">admin@nekkewifi.com</p>
             </div>
           </div>
         </div>
@@ -286,7 +289,7 @@ function AppContent() {
             {/* User Avatar */}
             <Avatar className="h-8 w-8 cursor-pointer">
               <AvatarFallback className="bg-emerald-600 text-white text-xs font-semibold">
-                AD
+                NK
               </AvatarFallback>
             </Avatar>
           </div>

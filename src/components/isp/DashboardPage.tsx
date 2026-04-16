@@ -136,7 +136,7 @@ export default function DashboardPage({ orgId }: DashboardPageProps) {
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
-        <p className="text-muted-foreground mt-1">Overview of your ISP billing operations</p>
+        <p className="text-muted-foreground mt-1">Welcome back to nekkeWiFi billing overview</p>
       </div>
 
       {/* KPI Cards */}
