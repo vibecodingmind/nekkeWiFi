@@ -23,6 +23,14 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
   LayoutDashboard,
   Building2,
   Users,
@@ -37,8 +45,14 @@ import {
   X,
   Bell,
   Globe,
+  LogOut,
+  Settings,
+  UserCog,
+  Shield,
 } from 'lucide-react';
+import { useAuthStore } from '@/lib/auth-store';
 
+import LoginPage from '@/components/isp/LoginPage';
 import DashboardPage from '@/components/isp/DashboardPage';
 import OrganizationsPage from '@/components/isp/OrganizationsPage';
 import CustomersPage from '@/components/isp/CustomersPage';
@@ -49,6 +63,8 @@ import UsagePage from '@/components/isp/UsagePage';
 import InvoicesPage from '@/components/isp/InvoicesPage';
 import PaymentsPage from '@/components/isp/PaymentsPage';
 import ReportsPage from '@/components/isp/ReportsPage';
+import UsersPage from '@/components/isp/UsersPage';
+import SettingsPage from '@/components/isp/SettingsPage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -66,26 +82,56 @@ interface Organization {
   isActive: boolean;
 }
 
+// Nav items with their required permissions
 interface NavItem {
   id: string;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
+  permission?: string;
+  roles?: string[]; // allowed roles, undefined = all
 }
 
 const navItems: NavItem[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { id: 'organizations', label: 'Organizations', icon: Building2 },
-  { id: 'customers', label: 'Customers', icon: Users },
-  { id: 'plans', label: 'Plans', icon: Package },
-  { id: 'devices', label: 'Devices', icon: Router },
-  { id: 'subscriptions', label: 'Subscriptions', icon: Link2 },
-  { id: 'usage', label: 'Usage Metering', icon: Activity },
-  { id: 'invoices', label: 'Invoices', icon: FileText },
-  { id: 'payments', label: 'Payments', icon: CreditCard },
-  { id: 'reports', label: 'Reports', icon: BarChart3 },
+  { id: 'organizations', label: 'Organizations', icon: Building2, roles: ['super_admin'] },
+  { id: 'customers', label: 'Customers', icon: Users, permission: 'customers.view' },
+  { id: 'plans', label: 'Plans', icon: Package, permission: 'plans.view' },
+  { id: 'devices', label: 'Devices', icon: Router, permission: 'devices.view' },
+  { id: 'subscriptions', label: 'Subscriptions', icon: Link2, permission: 'subscriptions.view' },
+  { id: 'usage', label: 'Usage Metering', icon: Activity, permission: 'usage.view' },
+  { id: 'invoices', label: 'Invoices', icon: FileText, permission: 'invoices.view' },
+  { id: 'payments', label: 'Payments', icon: CreditCard, permission: 'payments.view' },
+  { id: 'reports', label: 'Reports', icon: BarChart3, permission: 'reports.view' },
+  { id: 'users', label: 'Users & Roles', icon: UserCog, permission: 'users.view' },
+  { id: 'settings', label: 'Settings', icon: Settings, permission: 'settings.view' },
 ];
 
+function getRoleBadgeColor(role: string): string {
+  switch (role) {
+    case 'super_admin': return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400';
+    case 'admin': return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400';
+    case 'agent': return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400';
+    case 'viewer': return 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400';
+    default: return 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400';
+  }
+}
+
+function getRoleLabel(role: string): string {
+  switch (role) {
+    case 'super_admin': return 'Super Admin';
+    case 'admin': return 'Admin';
+    case 'agent': return 'Agent';
+    case 'viewer': return 'Viewer';
+    default: return role;
+  }
+}
+
+function getInitials(name: string): string {
+  return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+}
+
 function AppContent() {
+  const { user, isAuthenticated, isLoading: authLoading, logout, hasPermission } = useAuthStore();
   const [activePage, setActivePage] = useState('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
@@ -98,15 +144,35 @@ function AppContent() {
       if (!res.ok) throw new Error('Failed to load organizations');
       return res.json();
     },
+    enabled: isAuthenticated,
   });
 
-  const effectiveOrgId = selectedOrgId ?? (organizations && organizations.length > 0
+  // Auto-select org based on user's org
+  const effectiveOrgId = selectedOrgId ?? user?.organizationId ?? (organizations && organizations.length > 0
     ? (organizations.find((o) => o.isActive) ?? organizations[0]).id
     : null);
+
+  // Filter nav items based on user role/permissions
+  const visibleNavItems = navItems.filter(item => {
+    if (!isAuthenticated) return false;
+    // Super admin sees everything
+    if (user?.role === 'super_admin') return true;
+    // Check role restriction
+    if (item.roles && !item.roles.includes(user?.role ?? '')) return false;
+    // Check permission
+    if (item.permission && !hasPermission(item.permission)) return false;
+    return true;
+  });
 
   const handleNavClick = (pageId: string) => {
     setActivePage(pageId);
     setSidebarOpen(false);
+  };
+
+  const handleLogout = () => {
+    logout();
+    setActivePage('dashboard');
+    setSelectedOrgId(null);
   };
 
   const renderPage = () => {
@@ -122,12 +188,37 @@ function AppContent() {
       case 'invoices': return <InvoicesPage {...props} />;
       case 'payments': return <PaymentsPage {...props} />;
       case 'reports': return <ReportsPage {...props} />;
+      case 'users': return <UsersPage {...props} />;
+      case 'settings': return <SettingsPage {...props} />;
       default: return <DashboardPage {...props} />;
     }
   };
 
   const selectedOrgName = organizations?.find((o) => o.id === effectiveOrgId)?.name ?? 'Select Organization';
 
+  // ── Auth Gate ──
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-center space-y-4">
+          <div className="h-12 w-12 rounded-xl bg-emerald-600 flex items-center justify-center mx-auto animate-pulse">
+            <Globe className="h-7 w-7 text-white" />
+          </div>
+          <p className="text-muted-foreground text-sm">Loading nekkeWiFi...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated || !user) {
+    return (
+      <QueryClientProvider client={queryClient}>
+        <LoginPage />
+      </QueryClientProvider>
+    );
+  }
+
+  // ── Main App Layout ──
   return (
     <div className="min-h-screen flex bg-background">
       {/* Mobile Overlay */}
@@ -168,10 +259,20 @@ function AppContent() {
           </Button>
         </div>
 
+        {/* Organization Badge */}
+        {user.role !== 'super_admin' && (
+          <div className="px-4 py-2 border-b border-zinc-800">
+            <div className="flex items-center gap-2 text-xs">
+              <Building2 className="h-3 w-3 text-emerald-400" />
+              <span className="text-zinc-300 truncate">{user.organizationName}</span>
+            </div>
+          </div>
+        )}
+
         {/* Navigation */}
         <ScrollArea className="flex-1 py-4">
           <nav className="px-3 space-y-1">
-            {navItems.map((item) => {
+            {visibleNavItems.map((item) => {
               const isActive = activePage === item.id;
               const Icon = item.icon;
               return (
@@ -203,18 +304,21 @@ function AppContent() {
           </nav>
         </ScrollArea>
 
-        {/* Sidebar Footer */}
+        {/* Sidebar Footer — Current User */}
         <div className="p-4 border-t border-zinc-800">
           <div className="flex items-center gap-3">
             <Avatar className="h-8 w-8">
               <AvatarFallback className="bg-emerald-600 text-white text-xs font-semibold">
-                NK
+                {getInitials(user.name)}
               </AvatarFallback>
             </Avatar>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium truncate">nekkeWiFi Admin</p>
-              <p className="text-xs text-zinc-400 truncate">admin@nekkewifi.com</p>
+              <p className="text-sm font-medium truncate">{user.name}</p>
+              <p className="text-xs text-zinc-400 truncate">{user.email}</p>
             </div>
+            <Badge variant="secondary" className={`text-[10px] px-1.5 py-0 ${getRoleBadgeColor(user.role)}`}>
+              {getRoleLabel(user.role)}
+            </Badge>
           </div>
         </div>
       </aside>
@@ -233,37 +337,44 @@ function AppContent() {
               <Menu className="h-5 w-5" />
             </Button>
 
-            {/* Organization Selector */}
-            <Select value={effectiveOrgId ?? ''} onValueChange={(v) => setSelectedOrgId(v)}>
-              <SelectTrigger className="w-56">
-                {orgsLoading ? (
-                  <Skeleton className="h-4 w-32" />
-                ) : (
-                  <>
-                    <SelectValue placeholder="Select Organization">
+            {/* Page title */}
+            <h1 className="text-lg font-semibold hidden sm:block">
+              {navItems.find(n => n.id === activePage)?.label ?? 'Dashboard'}
+            </h1>
+
+            {/* Organization Selector (only for super_admin) */}
+            {user.role === 'super_admin' && (
+              <Select value={effectiveOrgId ?? ''} onValueChange={(v) => setSelectedOrgId(v)}>
+                <SelectTrigger className="w-56">
+                  {orgsLoading ? (
+                    <Skeleton className="h-4 w-32" />
+                  ) : (
+                    <>
+                      <SelectValue placeholder="Select Organization">
+                        <div className="flex items-center gap-2">
+                          <Building2 className="h-4 w-4 text-muted-foreground" />
+                          <span className="truncate">{selectedOrgName}</span>
+                        </div>
+                      </SelectValue>
+                    </>
+                  )}
+                </SelectTrigger>
+                <SelectContent>
+                  {organizations?.map((org) => (
+                    <SelectItem key={org.id} value={org.id}>
                       <div className="flex items-center gap-2">
-                        <Building2 className="h-4 w-4 text-muted-foreground" />
-                        <span className="truncate">{selectedOrgName}</span>
+                        <span>{org.name}</span>
+                        {!org.isActive && (
+                          <Badge variant="secondary" className="text-xs bg-zinc-200 text-zinc-500 dark:bg-zinc-700 dark:text-zinc-400">
+                            Inactive
+                          </Badge>
+                        )}
                       </div>
-                    </SelectValue>
-                  </>
-                )}
-              </SelectTrigger>
-              <SelectContent>
-                {organizations?.map((org) => (
-                  <SelectItem key={org.id} value={org.id}>
-                    <div className="flex items-center gap-2">
-                      <span>{org.name}</span>
-                      {!org.isActive && (
-                        <Badge variant="secondary" className="text-xs bg-zinc-200 text-zinc-500 dark:bg-zinc-700 dark:text-zinc-400">
-                          Inactive
-                        </Badge>
-                      )}
-                    </div>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           </div>
 
           <div className="flex items-center gap-3">
@@ -286,12 +397,51 @@ function AppContent() {
               </Tooltip>
             </TooltipProvider>
 
-            {/* User Avatar */}
-            <Avatar className="h-8 w-8 cursor-pointer">
-              <AvatarFallback className="bg-emerald-600 text-white text-xs font-semibold">
-                NK
-              </AvatarFallback>
-            </Avatar>
+            {/* User Dropdown Menu */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" className="relative h-9 w-9 rounded-full">
+                  <Avatar className="h-8 w-8">
+                    <AvatarFallback className="bg-emerald-600 text-white text-xs font-semibold">
+                      {getInitials(user.name)}
+                    </AvatarFallback>
+                  </Avatar>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="w-64" align="end" forceMount>
+                <DropdownMenuLabel className="font-normal">
+                  <div className="flex flex-col space-y-1">
+                    <p className="text-sm font-medium">{user.name}</p>
+                    <p className="text-xs text-muted-foreground">{user.email}</p>
+                    <div className="flex items-center gap-2 pt-1">
+                      <Badge variant="secondary" className={`text-[10px] px-1.5 py-0 ${getRoleBadgeColor(user.role)}`}>
+                        <Shield className="h-3 w-3 mr-1" />
+                        {getRoleLabel(user.role)}
+                      </Badge>
+                      {user.role !== 'super_admin' && (
+                        <span className="text-xs text-muted-foreground">{user.organizationName}</span>
+                      )}
+                    </div>
+                  </div>
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => handleNavClick('settings')}>
+                  <Settings className="mr-2 h-4 w-4" />
+                  Settings
+                </DropdownMenuItem>
+                {(user.role === 'super_admin' || user.role === 'admin') && (
+                  <DropdownMenuItem onClick={() => handleNavClick('users')}>
+                    <UserCog className="mr-2 h-4 w-4" />
+                    User Management
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={handleLogout} className="text-red-600 focus:text-red-600">
+                  <LogOut className="mr-2 h-4 w-4" />
+                  Sign out
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </header>
 

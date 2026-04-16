@@ -165,6 +165,19 @@ async function main() {
   // ============================================
   console.log('👥 Creating org users...');
 
+  // Super Admin (belongs to first org for schema, but has cross-org access)
+  const superAdmin = await db.orgUser.create({
+    data: {
+      organizationId: darnet.id,
+      name: 'Super Admin',
+      email: 'super@nekkewifi.com',
+      role: 'super_admin',
+      password: 'Super@123',
+      isActive: true,
+      lastLoginAt: daysAgo(0),
+    },
+  });
+
   const darnetUsers = await db.orgUser.createMany({
     data: [
       { organizationId: darnet.id, name: 'Admin Hassan', email: 'hassan@darnet.co.tz', role: 'admin', password: 'Admin@123', isActive: true, lastLoginAt: daysAgo(0) },
@@ -181,6 +194,7 @@ async function main() {
     ],
   });
 
+  console.log(`  ✅ Super Admin: ${superAdmin.email}`);
   console.log(`  ✅ DarNet users: ${darnetUsers.count}`);
   console.log(`  ✅ Arusha Fiber users: ${arushaUsers.count}`);
 
