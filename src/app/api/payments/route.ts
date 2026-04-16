@@ -43,15 +43,22 @@ export async function GET(request: NextRequest) {
     });
 
     // Calculate totals
-    const totalAmount = payments
-      .filter((p) => p.status === 'completed')
-      .reduce((sum, p) => sum + p.amount, 0);
+    const completedPayments = payments.filter((p) => p.status === 'completed');
+    const totalAmount = completedPayments.reduce((sum, p) => sum + p.amount, 0);
+    const pesapalPayments = completedPayments.filter((p) => p.gateway === 'pesapal');
+    const pesapalAmount = pesapalPayments.reduce((sum, p) => sum + p.amount, 0);
+    const manualPayments = completedPayments.filter((p) => p.gateway !== 'pesapal');
+    const manualAmount = manualPayments.reduce((sum, p) => sum + p.amount, 0);
 
     return NextResponse.json({
       data: payments,
       summary: {
         count: payments.length,
         totalAmount,
+        pesapalCount: pesapalPayments.length,
+        pesapalAmount,
+        manualCount: manualPayments.length,
+        manualAmount,
       },
     });
   } catch (error: unknown) {

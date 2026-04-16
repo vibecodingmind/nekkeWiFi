@@ -7,7 +7,8 @@ export function formatBytes(bytes: number): string {
   return `${value.toFixed(i === 0 ? 0 : 1)} ${sizes[i]}`;
 }
 
-export function formatTZS(amount: number): string {
+export function formatTZS(amount: number | undefined | null): string {
+  if (amount == null || isNaN(amount)) return 'TZS 0';
   return `TZS ${amount.toLocaleString()}`;
 }
 
