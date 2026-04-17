@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
@@ -63,6 +63,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { useAuthStore } from '@/lib/auth-store';
+import { initFetchInterceptor } from '@/lib/fetch-interceptor';
 
 import LoginPage from '@/components/isp/LoginPage';
 import CustomerPortal from '@/components/isp/CustomerPortal';
@@ -194,6 +195,11 @@ function AppContent() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
   const [notifOpen, setNotifOpen] = useState(false);
+
+  // Initialize fetch interceptor to auto-attach JWT tokens
+  useEffect(() => {
+    initFetchInterceptor();
+  }, []);
 
   const { data: organizations, isLoading: orgsLoading } = useQuery<Organization[]>({
     queryKey: ['organizations-list'],

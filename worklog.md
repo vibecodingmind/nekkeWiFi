@@ -258,3 +258,23 @@ Stage Summary:
 - 1 new page component (AnalyticsPage.tsx)
 - 1 updated main page (page.tsx) — notification bell + analytics nav
 - Total: 8 files created, 2 files modified
+
+---
+Task ID: 8
+Agent: Super Z (Main)
+Task: Fix critical auth gaps — middleware.ts missing + frontend not sending JWT tokens
+
+Work Log:
+- Diagnosed 2 critical gaps from previous session: middleware.ts was never saved to disk, and all 56 fetch() calls across 14 components used plain fetch() instead of authFetch()
+- Created src/middleware.ts: intercepts all /api/* routes, returns 401 JSON for requests without Authorization header, allows public routes (/api/auth, /api/pesapal/webhook, /api/portal/*)
+- Created src/lib/fetch-interceptor.ts: patches global window.fetch to auto-attach JWT Bearer token from localStorage on every API call
+- Updated src/app/page.tsx: added useEffect + initFetchInterceptor() import to patch global fetch on app startup
+- Verified end-to-end: No token → 401 "Authentication required", Login → JWT token received, Token → Dashboard data (MRR: 1,080,000 TZS, Subscribers: 40)
+- Build passes with zero errors, middleware active ("Proxy (Middleware)")
+- ESLint passes with zero errors
+
+Stage Summary:
+- 2 files created (middleware.ts, fetch-interceptor.ts), 1 file updated (page.tsx)
+- All API routes now properly protected at middleware level + route handler level (defense in depth)
+- All frontend fetch() calls automatically include JWT Authorization header via global interceptor
+- Platform auth is fully functional end-to-end
