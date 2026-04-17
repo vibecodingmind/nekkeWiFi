@@ -1,648 +1,404 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { useState } from 'react';
+import Link from 'next/link';
 import { Button } from '@/components/ui/button';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Badge } from '@/components/ui/badge';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Skeleton } from '@/components/ui/skeleton';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { Separator } from '@/components/ui/separator';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover';
-import {
-  LayoutDashboard,
-  Building2,
-  Users,
-  Package,
+  Globe,
   Router,
-  Link2,
-  Activity,
-  FileText,
   CreditCard,
-  BarChart3,
+  Activity,
+  Shield,
+  Users,
+  Check,
   Menu,
   X,
-  Bell,
-  Globe,
-  LogOut,
-  Settings,
-  UserCog,
-  Shield,
-  TrendingUp,
-  CheckCheck,
-  DollarSign,
-  AlertTriangle,
-  MonitorSmartphone,
-  Info,
-  Sparkles,
+  ArrowRight,
+  Building2,
+  Wifi,
+  BarChart3,
 } from 'lucide-react';
-import { useAuthStore } from '@/lib/auth-store';
-import { initFetchInterceptor } from '@/lib/fetch-interceptor';
-import { useTheme } from 'next-themes';
-import { Sun, Moon } from 'lucide-react';
 
-import LoginPage from '@/components/isp/LoginPage';
-import CustomerPortal from '@/components/isp/CustomerPortal';
-import DashboardPage from '@/components/isp/DashboardPage';
-import OrganizationsPage from '@/components/isp/OrganizationsPage';
-import CustomersPage from '@/components/isp/CustomersPage';
-import PlansPage from '@/components/isp/PlansPage';
-import DevicesPage from '@/components/isp/DevicesPage';
-import SubscriptionsPage from '@/components/isp/SubscriptionsPage';
-import UsagePage from '@/components/isp/UsagePage';
-import InvoicesPage from '@/components/isp/InvoicesPage';
-import PaymentsPage from '@/components/isp/PaymentsPage';
-import ReportsPage from '@/components/isp/ReportsPage';
-import UsersPage from '@/components/isp/UsersPage';
-import SettingsPage from '@/components/isp/SettingsPage';
-import AnalyticsPage from '@/components/isp/AnalyticsPage';
-
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 30000,
-      retry: 1,
-    },
+const features = [
+  {
+    icon: Router,
+    title: 'Universal Device Management',
+    description: 'Manage MikroTik, TP-Link, Huawei, ZTE, ONT/OLT, and more from a single dashboard with automated provisioning.',
   },
-});
-
-interface Organization {
-  id: string;
-  name: string;
-  slug: string;
-  isActive: boolean;
-}
-
-interface NotificationItem {
-  id: string;
-  type: string;
-  title: string;
-  message: string;
-  isRead: boolean;
-  createdAt: string;
-}
-
-// Nav items with their required permissions
-interface NavItem {
-  id: string;
-  label: string;
-  icon: React.ComponentType<{ className?: string }>;
-  permission?: string;
-  roles?: string[]; // allowed roles, undefined = all
-}
-
-const navItems: NavItem[] = [
-  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { id: 'organizations', label: 'Organizations', icon: Building2, roles: ['super_admin'] },
-  { id: 'customers', label: 'Customers', icon: Users, permission: 'customers.view' },
-  { id: 'plans', label: 'Plans', icon: Package, permission: 'plans.view' },
-  { id: 'devices', label: 'Devices', icon: Router, permission: 'devices.view' },
-  { id: 'subscriptions', label: 'Subscriptions', icon: Link2, permission: 'subscriptions.view' },
-  { id: 'usage', label: 'Usage Metering', icon: Activity, permission: 'usage.view' },
-  { id: 'invoices', label: 'Invoices', icon: FileText, permission: 'invoices.view' },
-  { id: 'payments', label: 'Payments', icon: CreditCard, permission: 'payments.view' },
-  { id: 'reports', label: 'Reports', icon: BarChart3, permission: 'reports.view' },
-  { id: 'analytics', label: 'Analytics', icon: TrendingUp, permission: 'reports.view' },
-  { id: 'users', label: 'Users & Roles', icon: UserCog, permission: 'users.view' },
-  { id: 'settings', label: 'Settings', icon: Settings, permission: 'settings.view' },
+  {
+    icon: CreditCard,
+    title: 'Automated Billing',
+    description: 'Auto-generate invoices, track payments, and manage subscriptions with flexible billing cycles.',
+  },
+  {
+    icon: Activity,
+    title: 'Real-time Monitoring',
+    description: 'Monitor bandwidth, device health, and customer usage in real-time with instant alerts.',
+  },
+  {
+    icon: CreditCard,
+    title: 'Pesapal Payments',
+    description: 'Accept M-PESA, Airtel Money, Tigo Pesa, and card payments seamlessly through Pesapal integration.',
+  },
+  {
+    icon: Shield,
+    title: 'Multi-tenant Architecture',
+    description: 'Serve multiple ISP organizations from a single platform with full data isolation and RBAC.',
+  },
+  {
+    icon: Users,
+    title: 'Customer Self-Service Portal',
+    description: 'Let customers check usage, view invoices, make payments, and manage their accounts online.',
+  },
 ];
 
-function getRoleBadgeColor(role: string): string {
-  switch (role) {
-    case 'super_admin': return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400';
-    case 'admin': return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400';
-    case 'agent': return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400';
-    case 'viewer': return 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400';
-    default: return 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400';
-  }
-}
+const plans = [
+  {
+    name: 'Basic',
+    price: 'Free',
+    period: 'forever',
+    description: 'Perfect for small ISPs getting started',
+    features: [
+      'Up to 100 customers',
+      '5 devices',
+      'Basic billing',
+      'Email support',
+      'Customer portal',
+    ],
+    cta: 'Start Free',
+    highlighted: false,
+  },
+  {
+    name: 'Professional',
+    price: '$49',
+    period: '/month',
+    description: 'For growing ISPs that need more power',
+    features: [
+      'Up to 5,000 customers',
+      '25 devices',
+      'Advanced billing & invoicing',
+      'Pesapal payments',
+      'Priority support',
+      'Analytics & reports',
+      'Multi-user access',
+    ],
+    cta: 'Get Started',
+    highlighted: true,
+  },
+  {
+    name: 'Enterprise',
+    price: 'Custom',
+    period: '',
+    description: 'For large ISPs with advanced needs',
+    features: [
+      'Unlimited customers',
+      'Unlimited devices',
+      'White-label branding',
+      'Dedicated support',
+      'Custom integrations',
+      'SLA guarantee',
+      'On-premise option',
+    ],
+    cta: 'Contact Sales',
+    highlighted: false,
+  },
+];
 
-function getRoleLabel(role: string): string {
-  switch (role) {
-    case 'super_admin': return 'Super Admin';
-    case 'admin': return 'Admin';
-    case 'agent': return 'Agent';
-    case 'viewer': return 'Viewer';
-    default: return role;
-  }
-}
+export default function LandingPage() {
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-function getInitials(name: string): string {
-  return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
-}
-
-function getNotificationIcon(type: string) {
-  switch (type) {
-    case 'payment_received':
-      return <DollarSign className="h-4 w-4 text-emerald-500" />;
-    case 'invoice_overdue':
-      return <AlertTriangle className="h-4 w-4 text-amber-500" />;
-    case 'subscription_expired':
-      return <FileText className="h-4 w-4 text-red-500" />;
-    case 'device_alert':
-      return <MonitorSmartphone className="h-4 w-4 text-orange-500" />;
-    case 'welcome':
-      return <Sparkles className="h-4 w-4 text-violet-500" />;
-    default:
-      return <Info className="h-4 w-4 text-blue-500" />;
-  }
-}
-
-function formatTimeAgo(dateStr: string): string {
-  const date = new Date(dateStr);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMin = Math.floor(diffMs / 60000);
-  const diffHr = Math.floor(diffMs / 3600000);
-  const diffDay = Math.floor(diffMs / 86400000);
-
-  if (diffMin < 1) return 'just now';
-  if (diffMin < 60) return `${diffMin}m ago`;
-  if (diffHr < 24) return `${diffHr}h ago`;
-  if (diffDay < 7) return `${diffDay}d ago`;
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
-
-function AppContent() {
-  const { user, isAuthenticated, isLoading: authLoading, logout, hasPermission } = useAuthStore();
-  const qc = useQueryClient();
-  const { theme, setTheme } = useTheme();
-  const [activePage, setActivePage] = useState('dashboard');
-  const [showCustomerPortal, setShowCustomerPortal] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
-  const [notifOpen, setNotifOpen] = useState(false);
-
-  // Initialize fetch interceptor to auto-attach JWT tokens
-  useEffect(() => {
-    initFetchInterceptor();
-  }, []);
-
-  const { data: organizations, isLoading: orgsLoading } = useQuery<Organization[]>({
-    queryKey: ['organizations-list'],
-    queryFn: async () => {
-      const res = await fetch('/api/organizations');
-      if (!res.ok) throw new Error('Failed to load organizations');
-      return res.json();
-    },
-    enabled: isAuthenticated,
-  });
-
-  // Auto-select org based on user's org
-  const effectiveOrgId = selectedOrgId ?? user?.organizationId ?? (organizations && organizations.length > 0
-    ? (organizations.find((o) => o.isActive) ?? organizations[0]).id
-    : null);
-
-  // Notifications query
-  const { data: notifData } = useQuery<{
-    data: NotificationItem[];
-    pagination: { total: number };
-  }>({
-    queryKey: ['notifications', user?.id],
-    queryFn: () => fetch(`/api/notifications?userId=${user!.id}&orgId=${effectiveOrgId}&unreadOnly=true&limit=50`).then(r => r.json()),
-    enabled: !!user?.id && !!effectiveOrgId,
-    refetchInterval: 30000,
-  });
-  const unreadCount = notifData?.pagination?.total ?? 0;
-
-  // Filter nav items based on user role/permissions
-  const visibleNavItems = navItems.filter(item => {
-    if (!isAuthenticated) return false;
-    // Super admin sees everything
-    if (user?.role === 'super_admin') return true;
-    // Check role restriction
-    if (item.roles && !item.roles.includes(user?.role ?? '')) return false;
-    // Check permission
-    if (item.permission && !hasPermission(item.permission)) return false;
-    return true;
-  });
-
-  const handleNavClick = (pageId: string) => {
-    setActivePage(pageId);
-    setSidebarOpen(false);
-  };
-
-  const handleLogout = () => {
-    logout();
-    setActivePage('dashboard');
-    setSelectedOrgId(null);
-  };
-
-  const markAsRead = useCallback(async (id: string) => {
-    try {
-      await fetch(`/api/notifications/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ isRead: true }),
-      });
-      qc.invalidateQueries({ queryKey: ['notifications'] });
-    } catch {
-      // silent
-    }
-  }, [qc]);
-
-  const markAllRead = useCallback(async () => {
-    try {
-      await fetch('/api/notifications/bulk', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'mark_all_read', userId: user?.id, orgId: effectiveOrgId }),
-      });
-      qc.invalidateQueries({ queryKey: ['notifications'] });
-    } catch {
-      // silent
-    }
-  }, [qc, user, effectiveOrgId]);
-
-  const renderPage = () => {
-    const props = { orgId: effectiveOrgId };
-    switch (activePage) {
-      case 'dashboard': return <DashboardPage {...props} />;
-      case 'organizations': return <OrganizationsPage />;
-      case 'customers': return <CustomersPage {...props} />;
-      case 'plans': return <PlansPage {...props} />;
-      case 'devices': return <DevicesPage {...props} />;
-      case 'subscriptions': return <SubscriptionsPage {...props} />;
-      case 'usage': return <UsagePage {...props} />;
-      case 'invoices': return <InvoicesPage {...props} />;
-      case 'payments': return <PaymentsPage {...props} />;
-      case 'reports': return <ReportsPage {...props} />;
-      case 'analytics': return <AnalyticsPage {...props} />;
-      case 'users': return <UsersPage {...props} />;
-      case 'settings': return <SettingsPage {...props} />;
-      default: return <DashboardPage {...props} />;
-    }
-  };
-
-  const selectedOrgName = organizations?.find((o) => o.id === effectiveOrgId)?.name ?? 'Select Organization';
-
-  // ── Customer Portal Overlay ──
-  if (showCustomerPortal) {
-    return (
-      <QueryClientProvider client={queryClient}>
-        <CustomerPortal onBack={() => setShowCustomerPortal(false)} />
-      </QueryClientProvider>
-    );
-  }
-
-  // ── Auth Gate ──
-  if (authLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="text-center space-y-4">
-          <div className="h-12 w-12 rounded-xl bg-emerald-600 flex items-center justify-center mx-auto animate-pulse">
-            <Globe className="h-7 w-7 text-white" />
-          </div>
-          <p className="text-muted-foreground text-sm">Loading nekkeWiFi...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!isAuthenticated || !user) {
-    return (
-      <QueryClientProvider client={queryClient}>
-        <LoginPage />
-      </QueryClientProvider>
-    );
-  }
-
-  // ── Main App Layout ──
   return (
-    <div className="min-h-screen flex bg-background">
-      {/* Mobile Overlay */}
-      {sidebarOpen && (
-        <div
-          className="fixed inset-0 bg-black/50 z-40 lg:hidden"
-          onClick={() => setSidebarOpen(false)}
-        />
-      )}
-
-      {/* Sidebar */}
-      <aside
-        className={`fixed inset-y-0 left-0 z-50 w-64 bg-zinc-900 text-zinc-100 flex flex-col transition-transform duration-300 ease-in-out lg:static lg:translate-x-0 ${
-          sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-        }`}
-      >
-        {/* Sidebar Header */}
-        <div className="flex items-center justify-between p-4 border-b border-zinc-800">
-          <div className="flex items-center gap-3">
-            <div className="h-9 w-9 rounded-lg bg-emerald-600 flex items-center justify-center">
-              <Globe className="h-5 w-5 text-white" />
+    <div className="min-h-screen bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100">
+      {/* ── NAVBAR ── */}
+      <nav className="sticky top-0 z-50 bg-white/80 dark:bg-zinc-950/80 backdrop-blur-md border-b border-zinc-200 dark:border-zinc-800">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between h-16">
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-lg bg-emerald-600 flex items-center justify-center">
+                <Globe className="h-5 w-5 text-white" />
+              </div>
+              <div>
+                <span className="font-bold text-xl">
+                  <span className="text-emerald-600">nekke</span>
+                  <span>WiFi</span>
+                </span>
+              </div>
             </div>
-            <div>
-              <h2 className="font-bold text-lg tracking-tight">
-                <span className="text-emerald-400">nekke</span>
-                <span className="text-white">WiFi</span>
-              </h2>
-              <p className="text-xs text-zinc-400">Billing & Network Platform</p>
+
+            {/* Desktop Nav */}
+            <div className="hidden md:flex items-center gap-6">
+              <a href="#features" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Features</a>
+              <a href="#pricing" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Pricing</a>
+              <Link href="/login">
+                <Button variant="ghost" size="sm">Sign In</Button>
+              </Link>
+              <Link href="/signup">
+                <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white">Get Started</Button>
+              </Link>
             </div>
-          </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-zinc-400 hover:text-zinc-100 lg:hidden"
-            onClick={() => setSidebarOpen(false)}
-          >
-            <X className="h-4 w-4" />
-          </Button>
-        </div>
 
-        {/* Organization Badge */}
-        {user.role !== 'super_admin' && (
-          <div className="px-4 py-2 border-b border-zinc-800">
-            <div className="flex items-center gap-2 text-xs">
-              <Building2 className="h-3 w-3 text-emerald-400" />
-              <span className="text-zinc-300 truncate">{user.organizationName}</span>
-            </div>
-          </div>
-        )}
-
-        {/* Navigation */}
-        <ScrollArea className="flex-1 py-4">
-          <nav className="px-3 space-y-1">
-            {visibleNavItems.map((item) => {
-              const isActive = activePage === item.id;
-              const Icon = item.icon;
-              return (
-                <TooltipProvider key={item.id} delayDuration={0}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        onClick={() => handleNavClick(item.id)}
-                        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                          isActive
-                            ? 'bg-emerald-600/20 text-emerald-400'
-                            : 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
-                        }`}
-                      >
-                        <Icon className={`h-4 w-4 flex-shrink-0 ${isActive ? 'text-emerald-400' : ''}`} />
-                        <span>{item.label}</span>
-                        {isActive && (
-                          <div className="ml-auto h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                        )}
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="right" className="lg:hidden">
-                      {item.label}
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              );
-            })}
-          </nav>
-        </ScrollArea>
-
-        {/* Sidebar Footer — Current User */}
-        <div className="p-4 border-t border-zinc-800">
-          <div className="flex items-center gap-3">
-            <Avatar className="h-8 w-8">
-              <AvatarFallback className="bg-emerald-600 text-white text-xs font-semibold">
-                {getInitials(user.name)}
-              </AvatarFallback>
-            </Avatar>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium truncate">{user.name}</p>
-              <p className="text-xs text-zinc-400 truncate">{user.email}</p>
-            </div>
-            <Badge variant="secondary" className={`text-[10px] px-1.5 py-0 ${getRoleBadgeColor(user.role)}`}>
-              {getRoleLabel(user.role)}
-            </Badge>
-          </div>
-        </div>
-      </aside>
-
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col min-w-0">
-        {/* Top Bar */}
-        <header className="sticky top-0 z-30 h-16 bg-white dark:bg-zinc-950 border-b flex items-center justify-between px-4 lg:px-6">
-          <div className="flex items-center gap-4">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="lg:hidden"
-              onClick={() => setSidebarOpen(true)}
-            >
-              <Menu className="h-5 w-5" />
-            </Button>
-
-            {/* Page title */}
-            <h1 className="text-lg font-semibold hidden sm:block">
-              {navItems.find(n => n.id === activePage)?.label ?? 'Dashboard'}
-            </h1>
-
-            {/* Organization Selector (only for super_admin) */}
-            {user.role === 'super_admin' && (
-              <Select value={effectiveOrgId ?? ''} onValueChange={(v) => setSelectedOrgId(v)}>
-                <SelectTrigger className="w-56">
-                  {orgsLoading ? (
-                    <Skeleton className="h-4 w-32" />
-                  ) : (
-                    <>
-                      <SelectValue placeholder="Select Organization">
-                        <div className="flex items-center gap-2">
-                          <Building2 className="h-4 w-4 text-muted-foreground" />
-                          <span className="truncate">{selectedOrgName}</span>
-                        </div>
-                      </SelectValue>
-                    </>
-                  )}
-                </SelectTrigger>
-                <SelectContent>
-                  {organizations?.map((org) => (
-                    <SelectItem key={org.id} value={org.id}>
-                      <div className="flex items-center gap-2">
-                        <span>{org.name}</span>
-                        {!org.isActive && (
-                          <Badge variant="secondary" className="text-xs bg-zinc-200 text-zinc-500 dark:bg-zinc-700 dark:text-zinc-400">
-                            Inactive
-                          </Badge>
-                        )}
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-          </div>
-
-          <div className="flex items-center gap-3">
-            {/* Theme Toggle */}
+            {/* Mobile Menu Button */}
             <Button
               variant="ghost"
               size="icon"
-              onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-              title="Toggle theme"
+              className="md:hidden"
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             >
-              <Sun className="h-4 w-4 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
-              <Moon className="absolute h-4 w-4 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
+              {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
             </Button>
-
-            {/* Notifications Bell with Dropdown */}
-            <Popover open={notifOpen} onOpenChange={setNotifOpen}>
-              <PopoverTrigger asChild>
-                <Button variant="ghost" size="icon" className="relative">
-                  <Bell className="h-4 w-4" />
-                  {unreadCount > 0 && (
-                    <span className="absolute -top-0.5 -right-0.5 h-4 w-4 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
-                      {unreadCount > 99 ? '99+' : unreadCount}
-                    </span>
-                  )}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-80 p-0 mr-4" align="end">
-                <div className="flex items-center justify-between p-3 border-b">
-                  <h4 className="font-semibold text-sm">Notifications</h4>
-                  {unreadCount > 0 && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 text-xs text-emerald-600 hover:text-emerald-700"
-                      onClick={markAllRead}
-                    >
-                      <CheckCheck className="h-3 w-3 mr-1" />
-                      Mark all read
-                    </Button>
-                  )}
-                </div>
-                <div className="max-h-96 overflow-y-auto">
-                  {notifData?.data && notifData.data.length > 0 ? (
-                    notifData.data.slice(0, 20).map((notif) => (
-                      <button
-                        key={notif.id}
-                        className={`w-full text-left px-3 py-2.5 border-b last:border-b-0 hover:bg-muted/50 transition-colors ${
-                          !notif.isRead ? 'bg-emerald-50/50 dark:bg-emerald-900/10' : ''
-                        }`}
-                        onClick={() => {
-                          if (!notif.isRead) markAsRead(notif.id);
-                        }}
-                      >
-                        <div className="flex items-start gap-2.5">
-                          <div className="mt-0.5 shrink-0">
-                            {getNotificationIcon(notif.type)}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                              <p className={`text-sm font-medium truncate ${!notif.isRead ? 'text-foreground' : 'text-muted-foreground'}`}>
-                                {notif.title}
-                              </p>
-                              {!notif.isRead && (
-                                <span className="shrink-0 h-2 w-2 rounded-full bg-emerald-500" />
-                              )}
-                            </div>
-                            <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">
-                              {notif.message}
-                            </p>
-                            <p className="text-[11px] text-muted-foreground/70 mt-1">
-                              {formatTimeAgo(notif.createdAt)}
-                            </p>
-                          </div>
-                        </div>
-                      </button>
-                    ))
-                  ) : (
-                    <div className="py-8 text-center">
-                      <Bell className="h-8 w-8 text-muted-foreground/30 mx-auto mb-2" />
-                      <p className="text-sm text-muted-foreground">No notifications</p>
-                    </div>
-                  )}
-                </div>
-              </PopoverContent>
-            </Popover>
-
-            {/* User Dropdown Menu */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="relative h-9 w-9 rounded-full">
-                  <Avatar className="h-8 w-8">
-                    <AvatarFallback className="bg-emerald-600 text-white text-xs font-semibold">
-                      {getInitials(user.name)}
-                    </AvatarFallback>
-                  </Avatar>
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent className="w-64" align="end" forceMount>
-                <DropdownMenuLabel className="font-normal">
-                  <div className="flex flex-col space-y-1">
-                    <p className="text-sm font-medium">{user.name}</p>
-                    <p className="text-xs text-muted-foreground">{user.email}</p>
-                    <div className="flex items-center gap-2 pt-1">
-                      <Badge variant="secondary" className={`text-[10px] px-1.5 py-0 ${getRoleBadgeColor(user.role)}`}>
-                        <Shield className="h-3 w-3 mr-1" />
-                        {getRoleLabel(user.role)}
-                      </Badge>
-                      {user.role !== 'super_admin' && (
-                        <span className="text-xs text-muted-foreground">{user.organizationName}</span>
-                      )}
-                    </div>
-                  </div>
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => handleNavClick('settings')}>
-                  <Settings className="mr-2 h-4 w-4" />
-                  Settings
-                </DropdownMenuItem>
-                {(user.role === 'super_admin' || user.role === 'admin') && (
-                  <DropdownMenuItem onClick={() => handleNavClick('users')}>
-                    <UserCog className="mr-2 h-4 w-4" />
-                    User Management
-                  </DropdownMenuItem>
-                )}
-                {(user.role === 'super_admin' || user.role === 'admin') && (
-                  <DropdownMenuItem onClick={() => setShowCustomerPortal(true)}>
-                    <Globe className="mr-2 h-4 w-4" />
-                    Customer Portal
-                  </DropdownMenuItem>
-                )}
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={handleLogout} className="text-red-600 focus:text-red-600">
-                  <LogOut className="mr-2 h-4 w-4" />
-                  Sign out
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
           </div>
-        </header>
+        </div>
 
-        {/* Page Content */}
-        <main className="flex-1 p-4 lg:p-6 overflow-auto">
-          {renderPage()}
-        </main>
-      </div>
+        {/* Mobile Menu */}
+        {mobileMenuOpen && (
+          <div className="md:hidden border-t border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950">
+            <div className="px-4 py-4 space-y-3">
+              <a href="#features" className="block text-sm text-muted-foreground hover:text-foreground" onClick={() => setMobileMenuOpen(false)}>Features</a>
+              <a href="#pricing" className="block text-sm text-muted-foreground hover:text-foreground" onClick={() => setMobileMenuOpen(false)}>Pricing</a>
+              <div className="flex gap-2 pt-2">
+                <Link href="/login" className="flex-1">
+                  <Button variant="outline" className="w-full">Sign In</Button>
+                </Link>
+                <Link href="/signup" className="flex-1">
+                  <Button className="w-full bg-emerald-600 hover:bg-emerald-700 text-white">Get Started</Button>
+                </Link>
+              </div>
+            </div>
+          </div>
+        )}
+      </nav>
+
+      {/* ── HERO SECTION ── */}
+      <section className="relative overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-br from-emerald-50 via-white to-emerald-50/30 dark:from-emerald-950/20 dark:via-zinc-950 dark:to-emerald-950/10" />
+        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 sm:py-28 lg:py-36">
+          <div className="max-w-3xl mx-auto text-center">
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 text-sm font-medium mb-6">
+              <Wifi className="h-3.5 w-3.5" />
+              Built for Tanzanian ISPs
+            </div>
+            <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight leading-tight">
+              Manage Your ISP with{' '}
+              <span className="text-emerald-600">nekkeWiFi</span>
+            </h1>
+            <p className="mt-6 text-lg sm:text-xl text-muted-foreground max-w-2xl mx-auto leading-relaxed">
+              The all-in-one billing and network management platform. Automate invoicing, monitor devices,
+              accept mobile money payments, and delight your customers.
+            </p>
+            <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
+              <Link href="/signup">
+                <Button size="lg" className="bg-emerald-600 hover:bg-emerald-700 text-white px-8 text-base">
+                  Get Started Free
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </Button>
+              </Link>
+              <a href="#features">
+                <Button size="lg" variant="outline" className="px-8 text-base">
+                  Learn More
+                </Button>
+              </a>
+            </div>
+            <div className="mt-10 flex items-center justify-center gap-8 text-sm text-muted-foreground">
+              <div className="flex items-center gap-2">
+                <Check className="h-4 w-4 text-emerald-600" />
+                Free plan available
+              </div>
+              <div className="flex items-center gap-2">
+                <Check className="h-4 w-4 text-emerald-600" />
+                No credit card required
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ── FEATURES SECTION ── */}
+      <section id="features" className="py-20 sm:py-28 bg-zinc-50 dark:bg-zinc-900/50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center max-w-2xl mx-auto mb-16">
+            <h2 className="text-3xl sm:text-4xl font-bold tracking-tight">
+              Everything You Need to Run Your ISP
+            </h2>
+            <p className="mt-4 text-lg text-muted-foreground">
+              From device management to automated billing, nekkeWiFi covers every aspect of your ISP operations.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 lg:gap-8">
+            {features.map((feature) => {
+              const Icon = feature.icon;
+              return (
+                <div
+                  key={feature.title}
+                  className="group bg-white dark:bg-zinc-900 rounded-xl p-6 border border-zinc-200 dark:border-zinc-800 hover:border-emerald-300 dark:hover:border-emerald-700 hover:shadow-lg transition-all duration-300"
+                >
+                  <div className="h-12 w-12 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center mb-4 group-hover:bg-emerald-600 group-hover:text-white transition-colors">
+                    <Icon className="h-6 w-6 text-emerald-600 group-hover:text-white transition-colors" />
+                  </div>
+                  <h3 className="text-lg font-semibold mb-2">{feature.title}</h3>
+                  <p className="text-sm text-muted-foreground leading-relaxed">{feature.description}</p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+
+      {/* ── STATS SECTION ── */}
+      <section className="py-16 bg-emerald-600 dark:bg-emerald-700">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-8 text-center text-white">
+            <div>
+              <p className="text-3xl sm:text-4xl font-bold">50+</p>
+              <p className="text-emerald-100 mt-1 text-sm">ISPs Powered</p>
+            </div>
+            <div>
+              <p className="text-3xl sm:text-4xl font-bold">10K+</p>
+              <p className="text-emerald-100 mt-1 text-sm">Customers Managed</p>
+            </div>
+            <div>
+              <p className="text-3xl sm:text-4xl font-bold">99.9%</p>
+              <p className="text-emerald-100 mt-1 text-sm">Uptime</p>
+            </div>
+            <div>
+              <p className="text-3xl sm:text-4xl font-bold">24/7</p>
+              <p className="text-emerald-100 mt-1 text-sm">Support</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ── PRICING SECTION ── */}
+      <section id="pricing" className="py-20 sm:py-28">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center max-w-2xl mx-auto mb-16">
+            <h2 className="text-3xl sm:text-4xl font-bold tracking-tight">
+              Simple, Transparent Pricing
+            </h2>
+            <p className="mt-4 text-lg text-muted-foreground">
+              Choose the plan that fits your ISP. Upgrade or downgrade anytime.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-5xl mx-auto">
+            {plans.map((plan) => (
+              <div
+                key={plan.name}
+                className={`rounded-xl border-2 p-6 lg:p-8 flex flex-col ${
+                  plan.highlighted
+                    ? 'border-emerald-600 bg-emerald-50/50 dark:bg-emerald-950/20 shadow-xl scale-105'
+                    : 'border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900'
+                }`}
+              >
+                {plan.highlighted && (
+                  <div className="inline-flex self-start items-center px-3 py-1 rounded-full bg-emerald-600 text-white text-xs font-semibold mb-4">
+                    Most Popular
+                  </div>
+                )}
+                <h3 className="text-xl font-bold">{plan.name}</h3>
+                <p className="text-sm text-muted-foreground mt-1">{plan.description}</p>
+                <div className="mt-6">
+                  <span className="text-4xl font-bold">{plan.price}</span>
+                  {plan.period && <span className="text-muted-foreground ml-1">{plan.period}</span>}
+                </div>
+                <ul className="mt-6 space-y-3 flex-1">
+                  {plan.features.map((feature) => (
+                    <li key={feature} className="flex items-start gap-2 text-sm">
+                      <Check className="h-4 w-4 text-emerald-600 mt-0.5 shrink-0" />
+                      <span>{feature}</span>
+                    </li>
+                  ))}
+                </ul>
+                <Link href="/signup" className="mt-8">
+                  <Button
+                    className={`w-full ${
+                      plan.highlighted
+                        ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                        : ''
+                    }`}
+                    variant={plan.highlighted ? 'default' : 'outline'}
+                  >
+                    {plan.cta}
+                  </Button>
+                </Link>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ── CTA SECTION ── */}
+      <section className="py-20 bg-zinc-50 dark:bg-zinc-900/50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="bg-gradient-to-br from-emerald-600 to-emerald-700 rounded-2xl px-8 py-16 sm:py-20 text-center text-white">
+            <h2 className="text-3xl sm:text-4xl font-bold">Ready to Streamline Your ISP?</h2>
+            <p className="mt-4 text-emerald-100 text-lg max-w-2xl mx-auto">
+              Join dozens of Tanzanian ISPs already using nekkeWiFi to manage their operations efficiently.
+            </p>
+            <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-4">
+              <Link href="/signup">
+                <Button size="lg" className="bg-white text-emerald-700 hover:bg-zinc-100 px-8 text-base font-semibold">
+                  Get Started Today
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </Button>
+              </Link>
+              <Link href="/login">
+                <Button size="lg" variant="ghost" className="text-white hover:bg-emerald-800 px-8 text-base">
+                  Sign In
+                </Button>
+              </Link>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ── FOOTER ── */}
+      <footer className="border-t border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
+            <div className="md:col-span-2">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="h-9 w-9 rounded-lg bg-emerald-600 flex items-center justify-center">
+                  <Globe className="h-5 w-5 text-white" />
+                </div>
+                <span className="font-bold text-xl">
+                  <span className="text-emerald-600">nekke</span>
+                  <span>WiFi</span>
+                </span>
+              </div>
+              <p className="text-sm text-muted-foreground max-w-md leading-relaxed">
+                nekkeWiFi is a comprehensive ISP billing and network management platform designed for
+                Internet Service Providers in Tanzania. Built by nekke Technologies.
+              </p>
+            </div>
+            <div>
+              <h4 className="font-semibold mb-4">Product</h4>
+              <ul className="space-y-2 text-sm text-muted-foreground">
+                <li><a href="#features" className="hover:text-foreground transition-colors">Features</a></li>
+                <li><a href="#pricing" className="hover:text-foreground transition-colors">Pricing</a></li>
+                <li><Link href="/portal" className="hover:text-foreground transition-colors">Customer Portal</Link></li>
+              </ul>
+            </div>
+            <div>
+              <h4 className="font-semibold mb-4">Company</h4>
+              <ul className="space-y-2 text-sm text-muted-foreground">
+                <li><span className="hover:text-foreground transition-colors cursor-default">About</span></li>
+                <li><span className="hover:text-foreground transition-colors cursor-default">Contact</span></li>
+                <li><span className="hover:text-foreground transition-colors cursor-default">Support</span></li>
+              </ul>
+            </div>
+          </div>
+          <div className="mt-12 pt-8 border-t border-zinc-200 dark:border-zinc-800 flex flex-col sm:flex-row items-center justify-between gap-4">
+            <p className="text-sm text-muted-foreground">
+              &copy; {new Date().getFullYear()} nekkeWiFi by nekke Technologies. All rights reserved.
+            </p>
+            <div className="flex items-center gap-4 text-sm text-muted-foreground">
+              <span className="hover:text-foreground transition-colors cursor-default">Privacy Policy</span>
+              <span className="hover:text-foreground transition-colors cursor-default">Terms of Service</span>
+            </div>
+          </div>
+        </div>
+      </footer>
     </div>
-  );
-}
-
-export default function Home() {
-  return (
-    <QueryClientProvider client={queryClient}>
-      <AppContent />
-    </QueryClientProvider>
   );
 }
