@@ -41,6 +41,7 @@ import {
   TrendingDown,
 } from 'lucide-react';
 import { formatTZS, getStatusColor, formatDate, formatDateTime } from '@/lib/helpers';
+import { ThemeToggle } from '@/components/theme-toggle';
 
 interface DashboardPageProps {
   orgId: string | null;
@@ -134,9 +135,12 @@ export default function DashboardPage({ orgId }: DashboardPageProps) {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
-        <p className="text-muted-foreground mt-1">Welcome back to nekkeWiFi billing overview</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
+          <p className="text-muted-foreground mt-1">Welcome back to nekkeWiFi billing overview</p>
+        </div>
+        <ThemeToggle />
       </div>
 
       {/* KPI Cards */}

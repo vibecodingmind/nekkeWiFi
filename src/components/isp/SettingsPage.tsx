@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@/lib/auth-store';
+import { formatDateTime } from '@/lib/helpers';
 import {
   Card,
   CardContent,
@@ -41,7 +42,16 @@ import {
   XCircle,
   Loader2,
   Lock,
+  ClipboardList,
+  Filter,
 } from 'lucide-react';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 interface SettingsPageProps {
   orgId: string | null;
@@ -104,6 +114,42 @@ export default function SettingsPage({ orgId }: SettingsPageProps) {
   const canManageGateways = auth.hasPermission('gateways.manage');
   const canManageUsers = auth.hasPermission('users.manage');
   const currentUser = auth.user;
+
+  // ── Audit Logs State ──
+  const [auditFilter, setAuditFilter] = useState<string>('all');
+  const [auditDisplayCount, setAuditDisplayCount] = useState(20);
+
+  interface AuditLogEntry {
+    id: string;
+    timestamp: string;
+    userName: string;
+    action: string;
+    resource: string;
+    ipAddress: string;
+  }
+
+  interface AuditLogsResponse {
+    data: AuditLogEntry[];
+    pagination: { total: number };
+  }
+
+  const { data: auditData, isLoading: auditLoading } = useQuery<AuditLogsResponse>({
+    queryKey: ['audit-logs', orgId],
+    queryFn: async () => {
+      if (!orgId) throw new Error('No org');
+      const res = await fetch(`/api/audit-logs?orgId=${orgId}`);
+      if (!res.ok) throw new Error('Failed to load audit logs');
+      return res.json();
+    },
+    enabled: !!orgId,
+  });
+
+  const auditLogs = auditData?.data ?? [];
+  const filteredLogs = auditFilter === 'all'
+    ? auditLogs
+    : auditLogs.filter((log) => log.action === auditFilter);
+  const displayedLogs = filteredLogs.slice(0, auditDisplayCount);
+  const hasMoreLogs = auditDisplayCount < filteredLogs.length;
 
   // ── Organization Data ──
   const { data: orgData, isLoading: orgLoading } = useQuery<OrganizationData>({
@@ -404,6 +450,10 @@ export default function SettingsPage({ orgId }: SettingsPageProps) {
                 <span className="hidden sm:inline">Roles & Permissions</span>
               </TabsTrigger>
             )}
+            <TabsTrigger value="audit-logs" className="gap-2">
+              <ClipboardList className="h-4 w-4" />
+              <span className="hidden sm:inline">Audit Logs</span>
+            </TabsTrigger>
           </TabsList>
 
           {/* ──────────────────────────────── Tab 1: Organization ──────────────────────────────── */}
@@ -985,6 +1035,109 @@ export default function SettingsPage({ orgId }: SettingsPageProps) {
               </Card>
             </TabsContent>
           )}
+          {/* ──────────────────────────────── Tab 5: Audit Logs ──────────────────────────────── */}
+          <TabsContent value="audit-logs">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+                    <ClipboardList className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                  </div>
+                  <div className="flex-1">
+                    <CardTitle>Audit Logs</CardTitle>
+                    <CardDescription>Track all actions performed within the organization</CardDescription>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Filter className="h-4 w-4 text-muted-foreground" />
+                    <Select value={auditFilter} onValueChange={(v) => { setAuditFilter(v); setAuditDisplayCount(20); }}>
+                      <SelectTrigger className="w-36">
+                        <SelectValue placeholder="Filter action" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Actions</SelectItem>
+                        <SelectItem value="create">Create</SelectItem>
+                        <SelectItem value="update">Update</SelectItem>
+                        <SelectItem value="delete">Delete</SelectItem>
+                        <SelectItem value="login">Login</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {auditLoading ? (
+                  <div className="space-y-3">
+                    {Array.from({ length: 5 }).map((_, i) => (
+                      <Skeleton key={i} className="h-12 w-full" />
+                    ))}
+                  </div>
+                ) : displayedLogs.length === 0 ? (
+                  <div className="py-12 text-center">
+                    <ClipboardList className="h-8 w-8 text-muted-foreground/30 mx-auto mb-2" />
+                    <p className="text-sm text-muted-foreground">No audit logs found</p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="rounded-lg border overflow-hidden">
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="bg-muted/50">
+                            <TableHead className="font-semibold">Timestamp</TableHead>
+                            <TableHead className="font-semibold">User</TableHead>
+                            <TableHead className="font-semibold">Action</TableHead>
+                            <TableHead className="font-semibold">Resource</TableHead>
+                            <TableHead className="font-semibold">IP Address</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {displayedLogs.map((log) => {
+                            const actionColor = {
+                              create: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
+                              update: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+                              delete: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+                              login: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
+                            }[log.action] ?? 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400';
+                            return (
+                              <TableRow key={log.id}>
+                                <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
+                                  {formatDateTime(log.timestamp)}
+                                </TableCell>
+                                <TableCell className="font-medium whitespace-nowrap">{log.userName}</TableCell>
+                                <TableCell>
+                                  <Badge variant="secondary" className={actionColor}>
+                                    {log.action}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell className="text-sm">{log.resource}</TableCell>
+                                <TableCell className="text-sm font-mono text-muted-foreground">{log.ipAddress}</TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
+                    </div>
+                    {hasMoreLogs && (
+                      <div className="flex justify-center pt-2">
+                        <Button
+                          variant="outline"
+                          onClick={() => setAuditDisplayCount((prev) => prev + 20)}
+                        >
+                          Load More ({filteredLogs.length - auditDisplayCount} remaining)
+                        </Button>
+                      </div>
+                    )}
+                    <p className="text-xs text-muted-foreground text-center">
+                      Showing {displayedLogs.length} of {filteredLogs.length} entries
+                      {auditData?.pagination?.total != null && (
+                        <> ({auditData.pagination.total} total in system)</>
+                      )}
+                    </p>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
         </Tabs>
       )}
     </div>

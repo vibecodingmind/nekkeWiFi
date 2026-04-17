@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { requirePermission, getOrgFilter, AuthError } from '@/lib/auth';
+import PDFDocument from 'pdfkit';
 
-// GET /api/invoices/[id]/pdf?orgId=xxx — Return downloadable HTML invoice
+// GET /api/invoices/[id]/pdf?orgId=xxx — Return downloadable PDF invoice
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -47,6 +48,7 @@ export async function GET(
       .filter(p => p.status === 'completed')
       .reduce((sum, p) => sum + p.amount, 0);
 
+    // ── Helpers ──────────────────────────────────────────────────────
     const formatCurrency = (amount: number) =>
       `${invoice.organization.currency} ${amount.toLocaleString('en-TZ', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
 
@@ -62,294 +64,390 @@ export async function GET(
       return method.charAt(0).toUpperCase() + method.slice(1).replace(/_/g, ' ');
     };
 
-    const getStatusBadgeStyle = (status: string) => {
-      switch (status.toLowerCase()) {
-        case 'paid': return 'background: #d1fae5; color: #065f46;';
-        case 'pending': return 'background: #fef3c7; color: #92400e;';
-        case 'overdue': return 'background: #fee2e2; color: #991b1b;';
-        case 'partial': return 'background: #fef3c7; color: #92400e;';
-        case 'cancelled': return 'background: #f3f4f6; color: #4b5563;';
-        default: return 'background: #f3f4f6; color: #4b5563;';
+    // ── PDF Document Setup ───────────────────────────────────────────
+    const buffers: Buffer[] = [];
+    const doc = new PDFDocument({
+      size: 'A4',               // 595.28 × 841.89 pt
+      margins: { top: 0, bottom: 0, left: 0, right: 0 },
+      bufferPages: true,
+    });
+
+    // Collect output buffers
+    doc.on('data', (chunk: Buffer) => buffers.push(chunk));
+
+    const pdfPromise = new Promise<Buffer>((resolve) => {
+      doc.on('end', () => resolve(Buffer.concat(buffers)));
+    });
+
+    // ── Constants ────────────────────────────────────────────────────
+    const PAGE_W = 595.28;
+    const PAGE_H = 841.89;
+    const MARGIN = 48;
+    const CONTENT_W = PAGE_W - MARGIN * 2;
+    const GREEN = '#059669';
+    const DARK = '#111827';
+    const TEXT = '#1f2937';
+    const MUTED = '#6b7280';
+    const LIGHT_MUTED = '#9ca3af';
+    const BORDER = '#e5e7eb';
+    const BG_LIGHT = '#f9fafb';
+
+    let y = 0; // running cursor
+
+    // Helper: check if we need a new page
+    const ensureSpace = (needed: number) => {
+      if (y + needed > PAGE_H - 60) {
+        doc.addPage();
+        y = 40;
       }
     };
 
+    // Helper: draw a horizontal line
+    const drawLine = (x1: number, x2: number, yPos: number, color: string = BORDER, width: number = 1) => {
+      doc.save().strokeColor(color).lineWidth(width).moveTo(x1, yPos).lineTo(x2, yPos).stroke().restore();
+    };
+
+    // Helper: draw filled rectangle
+    const drawRect = (x: number, yPos: number, w: number, h: number, color: string) => {
+      doc.save().fillColor(color).rect(x, yPos, w, h).fill().restore();
+    };
+
+    // ── 1. Green Header Bar ──────────────────────────────────────────
+    drawRect(0, 0, PAGE_W, 8, GREEN);
+    y = 32;
+
+    // ── 2. Header: Brand + Invoice Badge ─────────────────────────────
+    // Brand
+    doc.font('Helvetica-Bold').fontSize(22);
+    const nekkeWidth = doc.widthOfString('nekke');
+    doc.fillColor(GREEN).text('nekke', MARGIN, y, { continued: true });
+    doc.fillColor(DARK).text('WiFi');
+    y = doc.y + 2;
+
+    doc.font('Helvetica').fontSize(11).fillColor(MUTED);
+    doc.text('ISP Billing Platform', MARGIN, y);
+    y = doc.y + 4;
+
+    // Invoice badge (right-aligned)
+    doc.font('Helvetica-Bold').fontSize(24).fillColor(GREEN);
+    doc.text('INVOICE', MARGIN, y, { width: CONTENT_W, align: 'right' });
+    const badgeY = y;
+
+    doc.font('Helvetica').fontSize(13).fillColor(MUTED);
+    doc.text(invoice.invoiceNumber, MARGIN, doc.y, { width: CONTENT_W, align: 'right' });
+
+    // Status badge
+    const statusText = invoice.status.toUpperCase();
+    const statusColors: Record<string, { bg: string; fg: string }> = {
+      PAID: { bg: '#d1fae5', fg: '#065f46' },
+      PENDING: { bg: '#fef3c7', fg: '#92400e' },
+      OVERDUE: { bg: '#fee2e2', fg: '#991b1b' },
+      PARTIAL: { bg: '#fef3c7', fg: '#92400e' },
+      CANCELLED: { bg: '#f3f4f6', fg: '#4b5563' },
+    };
+    const colors = statusColors[statusText] || statusColors.CANCELLED;
+
+    doc.font('Helvetica-Bold').fontSize(10);
+    const statusW = doc.widthOfString(statusText) + 24;
+    const statusH = 20;
+    const statusX = MARGIN + CONTENT_W - statusW;
+    const statusY = doc.y + 4;
+
+    drawRect(statusX, statusY, statusW, statusH, colors.bg);
+    doc.fillColor(colors.fg).text(statusText, statusX, statusY + 5, { width: statusW, align: 'center' });
+
+    y = statusY + statusH + 20;
+
+    // ── 3. From / Bill To ────────────────────────────────────────────
+    const partyWidth = (CONTENT_W - 48) / 2; // 48 = gap between two columns
     const org = invoice.organization;
     const cust = invoice.customer;
-    const lineItemsHtml = invoice.lineItems.map((item) => `
-      <tr>
-        <td style="padding: 10px 12px; border-bottom: 1px solid #e5e7eb; font-size: 14px;">${item.description}</td>
-        <td style="padding: 10px 12px; border-bottom: 1px solid #e5e7eb; font-size: 14px; text-align: center;">${item.quantity}</td>
-        <td style="padding: 10px 12px; border-bottom: 1px solid #e5e7eb; font-size: 14px; text-align: right;">${formatCurrency(item.unitPrice)}</td>
-        <td style="padding: 10px 12px; border-bottom: 1px solid #e5e7eb; font-size: 14px; text-align: right; font-weight: 600;">${formatCurrency(item.total)}</td>
-      </tr>
-    `).join('');
 
-    const paymentsHtml = invoice.payments.length > 0 ? `
-      <div style="margin-top: 24px;">
-        <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 12px; color: #1f2937;">Payment History</h3>
-        <table style="width: 100%; border-collapse: collapse;">
-          <thead>
-            <tr style="background: #f9fafb;">
-              <th style="padding: 8px 12px; border-bottom: 2px solid #e5e7eb; text-align: left; font-size: 12px; text-transform: uppercase; color: #6b7280;">Date</th>
-              <th style="padding: 8px 12px; border-bottom: 2px solid #e5e7eb; text-align: left; font-size: 12px; text-transform: uppercase; color: #6b7280;">Method</th>
-              <th style="padding: 8px 12px; border-bottom: 2px solid #e5e7eb; text-align: right; font-size: 12px; text-transform: uppercase; color: #6b7280;">Amount</th>
-              <th style="padding: 8px 12px; border-bottom: 2px solid #e5e7eb; text-align: center; font-size: 12px; text-transform: uppercase; color: #6b7280;">Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${invoice.payments.map(p => `
-              <tr>
-                <td style="padding: 8px 12px; border-bottom: 1px solid #e5e7eb; font-size: 14px;">${formatDate(p.paidAt)}</td>
-                <td style="padding: 8px 12px; border-bottom: 1px solid #e5e7eb; font-size: 14px;">${formatPaymentMethod(p.method)}${p.paymentChannel ? ` (${p.paymentChannel})` : ''}</td>
-                <td style="padding: 8px 12px; border-bottom: 1px solid #e5e7eb; font-size: 14px; text-align: right; font-weight: 600;">${formatCurrency(p.amount)}</td>
-                <td style="padding: 8px 12px; border-bottom: 1px solid #e5e7eb; font-size: 12px; text-align: center;">
-                  <span style="padding: 2px 8px; border-radius: 9999px; ${getStatusBadgeStyle(p.status)}">${p.status}</span>
-                </td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
-      </div>
-    ` : '';
+    // "From" section
+    doc.font('Helvetica-Bold').fontSize(9).fillColor(LIGHT_MUTED);
+    doc.text('FROM', MARGIN, y, { characterSpacing: 1 });
 
-    const html = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Invoice ${invoice.invoiceNumber} — ${org.name}</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      color: #1f2937;
-      line-height: 1.6;
-      background: white;
+    doc.font('Helvetica-Bold').fontSize(14).fillColor(DARK);
+    doc.text(org.name, MARGIN, doc.y + 6);
+    doc.font('Helvetica').fontSize(11).fillColor(TEXT);
+
+    const fromLines: string[] = [];
+    if (org.address) fromLines.push(org.address);
+    if (org.email) fromLines.push(org.email);
+    if (org.phone) fromLines.push(org.phone);
+
+    for (const line of fromLines) {
+      doc.text(line, MARGIN, doc.y + 1);
     }
-    @media print {
-      body { margin: 0; }
-      @page {
-        margin: 15mm;
-        size: A4 portrait;
+
+    // "Bill To" section (right column)
+    const billToX = MARGIN + partyWidth + 48;
+    const billToTopY = y;
+    doc.font('Helvetica-Bold').fontSize(9).fillColor(LIGHT_MUTED);
+    doc.text('BILL TO', billToX, billToTopY, { width: partyWidth, characterSpacing: 1 });
+
+    doc.font('Helvetica-Bold').fontSize(14).fillColor(DARK);
+    doc.text(`${cust.firstName} ${cust.lastName}`, billToX, doc.y + 6, { width: partyWidth });
+    doc.font('Helvetica').fontSize(11).fillColor(TEXT);
+
+    const billToLines: string[] = [];
+    if (cust.address) billToLines.push(cust.address);
+    if (cust.city) billToLines.push(cust.city);
+    if (cust.region) billToLines.push(cust.region);
+    billToLines.push(cust.phone);
+    if (cust.email) billToLines.push(cust.email);
+
+    for (const line of billToLines) {
+      doc.text(line, billToX, doc.y + 1, { width: partyWidth });
+    }
+
+    y = Math.max(doc.y, y + 80) + 12;
+
+    // ── 4. Invoice Details Row ───────────────────────────────────────
+    const detailBoxH = 52;
+    ensureSpace(detailBoxH + 10);
+    drawRect(MARGIN, y, CONTENT_W, detailBoxH, BG_LIGHT);
+
+    const detailLabels = ['Invoice Date', 'Due Date', 'Amount Paid'];
+    const detailValues = [
+      formatDate(invoice.createdAt),
+      formatDate(invoice.dueDate),
+      formatCurrency(totalPaid),
+    ];
+    if (invoice.subscription?.plan) {
+      detailLabels.push('Plan');
+      detailValues.push(invoice.subscription.plan.name);
+    }
+
+    const detailCount = detailLabels.length;
+    const detailColW = CONTENT_W / detailCount;
+
+    for (let i = 0; i < detailCount; i++) {
+      const dx = MARGIN + i * detailColW;
+      doc.font('Helvetica').fontSize(9).fillColor(LIGHT_MUTED);
+      doc.text(detailLabels[i], dx + 14, y + 12, { width: detailColW - 28 });
+      doc.font('Helvetica-Bold').fontSize(13).fillColor(TEXT);
+      doc.text(detailValues[i], dx + 14, y + 28, { width: detailColW - 28 });
+    }
+
+    y += detailBoxH + 20;
+
+    // ── 5. Line Items Table ──────────────────────────────────────────
+    ensureSpace(100);
+    const tableColWidths = [CONTENT_W - 80 - 130 - 130, 80, 130, 130];
+    const tableHeaders = ['Description', 'Qty', 'Unit Price', 'Total'];
+    const tableAligns = ['left', 'center', 'right', 'right'] as const;
+    const tableXPositions = [MARGIN];
+    for (let i = 1; i < 4; i++) {
+      tableXPositions.push(tableXPositions[i - 1] + tableColWidths[i - 1]);
+    }
+
+    // Table header row
+    drawRect(MARGIN, y, CONTENT_W, 28, BG_LIGHT);
+    drawLine(MARGIN, MARGIN + CONTENT_W, y + 28, BORDER, 2);
+
+    doc.font('Helvetica-Bold').fontSize(10).fillColor(MUTED);
+    for (let i = 0; i < 4; i++) {
+      doc.text(
+        tableHeaders[i],
+        tableXPositions[i] + 12,
+        y + 8,
+        { width: tableColWidths[i] - 24, align: tableAligns[i] }
+      );
+    }
+    y += 28;
+
+    // Table body rows
+    for (const item of invoice.lineItems) {
+      ensureSpace(32);
+
+      const rowH = 32;
+      drawLine(MARGIN, MARGIN + CONTENT_W, y + rowH, BORDER, 0.5);
+
+      // Description
+      doc.font('Helvetica').fontSize(11).fillColor(TEXT);
+      doc.text(item.description, tableXPositions[0] + 12, y + 9, {
+        width: tableColWidths[0] - 24, align: 'left', lineBreak: false,
+      });
+
+      // Qty
+      doc.text(String(item.quantity), tableXPositions[1] + 12, y + 9, {
+        width: tableColWidths[1] - 24, align: 'center',
+      });
+
+      // Unit Price
+      doc.text(formatCurrency(item.unitPrice), tableXPositions[2] + 12, y + 9, {
+        width: tableColWidths[2] - 24, align: 'right',
+      });
+
+      // Total
+      doc.font('Helvetica-Bold').fontSize(11).fillColor(TEXT);
+      doc.text(formatCurrency(item.total), tableXPositions[3] + 12, y + 9, {
+        width: tableColWidths[3] - 24, align: 'right',
+      });
+
+      y += rowH;
+    }
+
+    // Bottom border of table
+    drawLine(MARGIN, MARGIN + CONTENT_W, y, BORDER, 1);
+    y += 16;
+
+    // ── 6. Totals Section ────────────────────────────────────────────
+    ensureSpace(100);
+    const totalsW = 260;
+    const totalsX = MARGIN + CONTENT_W - totalsW;
+    let totalsY = y;
+
+    // Subtotal
+    doc.font('Helvetica').fontSize(12).fillColor(MUTED);
+    doc.text('Subtotal', totalsX, totalsY, { width: totalsW - 100 });
+    doc.font('Helvetica').fontSize(12).fillColor(TEXT);
+    doc.text(formatCurrency(invoice.subtotal), totalsX, totalsY, { width: totalsW, align: 'right' });
+    totalsY += 20;
+
+    // Tax
+    if (invoice.tax > 0) {
+      doc.font('Helvetica').fontSize(12).fillColor(MUTED);
+      doc.text('Tax', totalsX, totalsY, { width: totalsW - 100 });
+      doc.font('Helvetica').fontSize(12).fillColor(TEXT);
+      doc.text(formatCurrency(invoice.tax), totalsX, totalsY, { width: totalsW, align: 'right' });
+      totalsY += 20;
+    }
+
+    // Discount
+    if (invoice.discount > 0) {
+      doc.font('Helvetica').fontSize(12).fillColor(MUTED);
+      doc.text('Discount', totalsX, totalsY, { width: totalsW - 100 });
+      doc.font('Helvetica').fontSize(12).fillColor(GREEN);
+      doc.text(`- ${formatCurrency(invoice.discount)}`, totalsX, totalsY, { width: totalsW, align: 'right' });
+      totalsY += 20;
+    }
+
+    // Grand total separator
+    drawLine(totalsX, totalsX + totalsW, totalsY, BORDER, 2);
+    totalsY += 10;
+
+    // Grand total
+    doc.font('Helvetica-Bold').fontSize(16).fillColor(GREEN);
+    doc.text('Total', totalsX, totalsY, { width: totalsW - 100 });
+    doc.text(formatCurrency(invoice.total), totalsX, totalsY, { width: totalsW, align: 'right' });
+
+    y = totalsY + 28;
+
+    // ── 7. Payment History ───────────────────────────────────────────
+    if (invoice.payments.length > 0) {
+      ensureSpace(80);
+      doc.font('Helvetica-Bold').fontSize(14).fillColor(TEXT);
+      doc.text('Payment History', MARGIN, y);
+      y = doc.y + 10;
+
+      const payColWidths = [140, 160, CONTENT_W - 140 - 160 - 100, 100];
+      const payHeaders = ['Date', 'Method', 'Amount', 'Status'];
+      const payAligns = ['left', 'left', 'right', 'center'] as const;
+      const payXPositions = [MARGIN];
+      for (let i = 1; i < 4; i++) {
+        payXPositions.push(payXPositions[i - 1] + payColWidths[i - 1]);
       }
-    }
-    .invoice-container {
-      max-width: 800px;
-      margin: 0 auto;
-      padding: 40px 48px;
-    }
-    .header-bar {
-      background: #059669;
-      height: 8px;
-      border-radius: 0 0 4px 4px;
-      margin-bottom: 32px;
-    }
-    .header {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      margin-bottom: 32px;
-    }
-    .brand h1 {
-      font-size: 24px;
-      font-weight: 700;
-    }
-    .brand h1 span { color: #059669; }
-    .brand p { font-size: 12px; color: #6b7280; margin-top: 2px; }
-    .invoice-badge {
-      text-align: right;
-    }
-    .invoice-badge h2 {
-      font-size: 28px;
-      font-weight: 700;
-      color: #059669;
-    }
-    .invoice-badge .status {
-      display: inline-block;
-      padding: 4px 16px;
-      border-radius: 9999px;
-      font-size: 12px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      margin-top: 4px;
-    }
-    .parties {
-      display: flex;
-      gap: 48px;
-      margin-bottom: 32px;
-    }
-    .party { flex: 1; }
-    .party h3 {
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-      color: #9ca3af;
-      margin-bottom: 8px;
-      font-weight: 600;
-    }
-    .party p { font-size: 14px; color: #374151; margin-bottom: 2px; }
-    .party .name { font-weight: 600; font-size: 16px; color: #111827; }
-    .details-row {
-      display: flex;
-      gap: 32px;
-      margin-bottom: 32px;
-      background: #f9fafb;
-      border-radius: 8px;
-      padding: 16px 20px;
-    }
-    .detail-item p:first-child { font-size: 11px; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.5px; }
-    .detail-item p:last-child { font-size: 14px; font-weight: 600; color: #1f2937; }
-    table { width: 100%; border-collapse: collapse; }
-    thead tr { background: #f9fafb; }
-    th { padding: 10px 12px; border-bottom: 2px solid #e5e7eb; text-align: left; font-size: 12px; text-transform: uppercase; color: #6b7280; font-weight: 600; }
-    .totals {
-      display: flex;
-      justify-content: flex-end;
-      margin-top: 16px;
-    }
-    .totals-table { width: 280px; }
-    .totals-table tr td {
-      padding: 6px 0;
-      font-size: 14px;
-    }
-    .totals-table .label { color: #6b7280; }
-    .totals-table .value { text-align: right; font-weight: 500; }
-    .totals-table .grand-total td {
-      border-top: 2px solid #e5e7eb;
-      padding-top: 10px;
-      font-size: 18px;
-      font-weight: 700;
-      color: #059669;
-    }
-    .footer {
-      margin-top: 48px;
-      padding-top: 24px;
-      border-top: 1px solid #e5e7eb;
-      text-align: center;
-      color: #9ca3af;
-      font-size: 12px;
-    }
-  </style>
-</head>
-<body>
-  <div class="invoice-container">
-    <div class="header-bar"></div>
 
-    <div class="header">
-      <div class="brand">
-        <h1><span>nekke</span>WiFi</h1>
-        <p>ISP Billing Platform</p>
-      </div>
-      <div class="invoice-badge">
-        <h2>INVOICE</h2>
-        <p style="font-size: 14px; color: #6b7280; font-weight: 500;">${invoice.invoiceNumber}</p>
-        <span class="status" style="${getStatusBadgeStyle(invoice.status)}">${invoice.status}</span>
-      </div>
-    </div>
+      // Header
+      drawRect(MARGIN, y, CONTENT_W, 26, BG_LIGHT);
+      drawLine(MARGIN, MARGIN + CONTENT_W, y + 26, BORDER, 2);
 
-    <div class="parties">
-      <div class="party">
-        <h3>From</h3>
-        <p class="name">${org.name}</p>
-        ${org.address ? `<p>${org.address}</p>` : ''}
-        ${org.email ? `<p>${org.email}</p>` : ''}
-        ${org.phone ? `<p>${org.phone}</p>` : ''}
-      </div>
-      <div class="party">
-        <h3>Bill To</h3>
-        <p class="name">${cust.firstName} ${cust.lastName}</p>
-        ${cust.address ? `<p>${cust.address}</p>` : ''}
-        ${cust.city ? `<p>${cust.city}</p>` : ''}
-        ${cust.region ? `<p>${cust.region}</p>` : ''}
-        <p>${cust.phone}</p>
-        ${cust.email ? `<p>${cust.email}</p>` : ''}
-      </div>
-    </div>
+      doc.font('Helvetica-Bold').fontSize(9).fillColor(MUTED);
+      for (let i = 0; i < 4; i++) {
+        doc.text(
+          payHeaders[i],
+          payXPositions[i] + 12,
+          y + 7,
+          { width: payColWidths[i] - 24, align: payAligns[i] }
+        );
+      }
+      y += 26;
 
-    <div class="details-row">
-      <div class="detail-item">
-        <p>Invoice Date</p>
-        <p>${formatDate(invoice.createdAt)}</p>
-      </div>
-      <div class="detail-item">
-        <p>Due Date</p>
-        <p>${formatDate(invoice.dueDate)}</p>
-      </div>
-      <div class="detail-item">
-        <p>Amount Paid</p>
-        <p>${formatCurrency(totalPaid)}</p>
-      </div>
-      ${invoice.subscription?.plan ? `
-      <div class="detail-item">
-        <p>Plan</p>
-        <p>${invoice.subscription.plan.name}</p>
-      </div>
-      ` : ''}
-    </div>
+      // Payment rows
+      for (const p of invoice.payments) {
+        ensureSpace(28);
+        const rowH = 28;
+        drawLine(MARGIN, MARGIN + CONTENT_W, y + rowH, BORDER, 0.5);
 
-    <table>
-      <thead>
-        <tr>
-          <th style="text-align: left;">Description</th>
-          <th style="text-align: center; width: 80px;">Qty</th>
-          <th style="text-align: right; width: 140px;">Unit Price</th>
-          <th style="text-align: right; width: 140px;">Total</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${lineItemsHtml}
-      </tbody>
-    </table>
+        const methodStr = formatPaymentMethod(p.method) + (p.paymentChannel ? ` (${p.paymentChannel})` : '');
 
-    <div class="totals">
-      <table class="totals-table">
-        <tr>
-          <td class="label">Subtotal</td>
-          <td class="value">${formatCurrency(invoice.subtotal)}</td>
-        </tr>
-        ${invoice.tax > 0 ? `
-        <tr>
-          <td class="label">Tax</td>
-          <td class="value">${formatCurrency(invoice.tax)}</td>
-        </tr>
-        ` : ''}
-        ${invoice.discount > 0 ? `
-        <tr>
-          <td class="label">Discount</td>
-          <td class="value" style="color: #059669;">- ${formatCurrency(invoice.discount)}</td>
-        </tr>
-        ` : ''}
-        <tr class="grand-total">
-          <td>Total</td>
-          <td style="text-align: right;">${formatCurrency(invoice.total)}</td>
-        </tr>
-      </table>
-    </div>
+        doc.font('Helvetica').fontSize(11).fillColor(TEXT);
+        doc.text(formatDate(p.paidAt), payXPositions[0] + 12, y + 8, { width: payColWidths[0] - 24 });
+        doc.text(methodStr, payXPositions[1] + 12, y + 8, { width: payColWidths[1] - 24 });
+        doc.font('Helvetica-Bold').fontSize(11).fillColor(TEXT);
+        doc.text(formatCurrency(p.amount), payXPositions[2] + 12, y + 8, { width: payColWidths[2] - 24, align: 'right' });
 
-    ${paymentsHtml}
+        // Status badge
+        const payStatusText = p.status.toUpperCase();
+        const payStatusColors: Record<string, { bg: string; fg: string }> = {
+          COMPLETED: { bg: '#d1fae5', fg: '#065f46' },
+          PENDING: { bg: '#fef3c7', fg: '#92400e' },
+          FAILED: { bg: '#fee2e2', fg: '#991b1b' },
+          REFUNDED: { bg: '#f3f4f6', fg: '#4b5563' },
+          PROCESSING: { bg: '#dbeafe', fg: '#1e40af' },
+        };
+        const pColors = payStatusColors[payStatusText] || payStatusColors.PENDING;
 
-    ${invoice.notes ? `
-    <div style="margin-top: 24px; padding: 16px; background: #f9fafb; border-radius: 8px;">
-      <p style="font-size: 12px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Notes</p>
-      <p style="font-size: 14px; color: #374151;">${invoice.notes}</p>
-    </div>
-    ` : ''}
+        doc.font('Helvetica-Bold').fontSize(8);
+        const psW = doc.widthOfString(payStatusText) + 16;
+        const psH = 16;
+        const psX = payXPositions[3] + (payColWidths[3] - psW) / 2;
+        const psY = y + 6;
 
-    <div class="footer">
-      <p>Generated by <strong>nekkeWiFi</strong> — ISP Billing Platform</p>
-      <p style="margin-top: 4px;">Generated on ${new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}</p>
-    </div>
-  </div>
-</body>
-</html>`;
+        drawRect(psX, psY, psW, psH, pColors.bg);
+        doc.fillColor(pColors.fg).text(payStatusText, psX, psY + 3, { width: psW, align: 'center' });
 
-    const filename = `invoice-${invoice.invoiceNumber}.html`;
+        y += rowH;
+      }
+      drawLine(MARGIN, MARGIN + CONTENT_W, y, BORDER, 1);
+      y += 16;
+    }
 
-    return new NextResponse(html, {
+    // ── 8. Notes ─────────────────────────────────────────────────────
+    if (invoice.notes) {
+      ensureSpace(60);
+      drawRect(MARGIN, y, CONTENT_W, 48, BG_LIGHT);
+
+      doc.font('Helvetica').fontSize(9).fillColor(MUTED);
+      doc.text('NOTES', MARGIN + 16, y + 10, { characterSpacing: 0.5 });
+
+      doc.font('Helvetica').fontSize(11).fillColor(TEXT);
+      doc.text(invoice.notes, MARGIN + 16, y + 24, { width: CONTENT_W - 32 });
+
+      y += 48 + 16;
+    }
+
+    // ── 9. Footer ────────────────────────────────────────────────────
+    // Ensure footer is near bottom of last page
+    const footerY = PAGE_H - 50;
+    drawLine(MARGIN, MARGIN + CONTENT_W, footerY - 12, BORDER, 0.5);
+
+    doc.font('Helvetica').fontSize(10).fillColor(LIGHT_MUTED);
+    doc.text(
+      'Generated by nekkeWiFi \u2014 ISP Billing Platform',
+      MARGIN, footerY,
+      { width: CONTENT_W, align: 'center' }
+    );
+    doc.font('Helvetica').fontSize(9).fillColor(LIGHT_MUTED);
+    doc.text(
+      `Generated on ${new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}`,
+      MARGIN, doc.y + 2,
+      { width: CONTENT_W, align: 'center' }
+    );
+
+    // ── Finalize ─────────────────────────────────────────────────────
+    doc.end();
+    const pdfBuffer = await pdfPromise;
+
+    const filename = `invoice-${invoice.invoiceNumber}.pdf`;
+
+    return new NextResponse(new Uint8Array(pdfBuffer), {
       headers: {
-        'Content-Type': 'text/html; charset=utf-8',
+        'Content-Type': 'application/pdf',
         'Content-Disposition': `attachment; filename="${filename}"`,
+        'Content-Length': String(pdfBuffer.length),
       },
     });
   } catch (error: unknown) {
