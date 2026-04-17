@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { requirePermission, getOrgFilter, AuthError, hashPassword } from '@/lib/auth';
+import { logAudit } from '@/lib/audit';
 
 // GET /api/users?orgId=xxx
 export async function GET(request: NextRequest) {
@@ -119,6 +120,19 @@ export async function POST(request: NextRequest) {
         updatedAt: true,
         organizationId: true,
       },
+    });
+
+    // Log audit
+    await logAudit({
+      organizationId: orgId,
+      userId: authUser.userId,
+      userEmail: authUser.email,
+      userRole: authUser.role,
+      action: 'create',
+      resource: 'user',
+      resourceId: user.id,
+      details: { name: user.name, email: user.email, role: user.role },
+      request,
     });
 
     return NextResponse.json({ user }, { status: 201 });

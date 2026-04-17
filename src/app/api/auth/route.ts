@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { comparePassword, generateToken, getAuthUser, AuthError } from '@/lib/auth';
+import { logAudit } from '@/lib/audit';
 
 // POST /api/auth — Login
 export async function POST(request: NextRequest) {
@@ -83,6 +84,19 @@ export async function POST(request: NextRequest) {
       email: user.email,
       role: user.role,
       organizationId: user.organizationId,
+    });
+
+    // Log successful login
+    await logAudit({
+      organizationId: user.organizationId,
+      userId: user.id,
+      userEmail: user.email,
+      userRole: user.role,
+      action: 'login',
+      resource: 'user',
+      resourceId: user.id,
+      details: { name: user.name },
+      request,
     });
 
     return NextResponse.json({

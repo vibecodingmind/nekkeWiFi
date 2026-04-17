@@ -57,6 +57,7 @@ import {
   Clock,
   Settings,
   Wifi,
+  Download,
 } from 'lucide-react';
 import {
   formatTZS,
@@ -577,6 +578,16 @@ export default function PaymentsPage({ orgId }: PaymentsPageProps) {
             </p>
           </div>
           <div className="flex items-center gap-3 flex-wrap">
+            {orgId && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => window.open(`/api/export/payments?orgId=${orgId}`, '_blank')}
+              >
+                <Download className="h-4 w-4 mr-2" />
+                Export CSV
+              </Button>
+            )}
             <Dialog open={pesapalOpen} onOpenChange={resetPesapalDialog}>
               <DialogTrigger asChild>
                 <Button className="bg-teal-600 hover:bg-teal-700 text-white">

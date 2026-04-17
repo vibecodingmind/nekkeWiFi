@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { Prisma } from '@prisma/client';
 import { requirePermission, getOrgFilter, AuthError } from '@/lib/auth';
+import { notifyWelcome } from '@/lib/notifications-service';
+import { logAudit } from '@/lib/audit';
 
 export async function GET(request: NextRequest) {
   try {
@@ -101,6 +103,28 @@ export async function POST(request: NextRequest) {
       include: {
         organization: { select: { id: true, name: true } },
       },
+    });
+
+    // Log audit
+    await logAudit({
+      organizationId: orgId,
+      userId: authUser.userId,
+      userEmail: authUser.email,
+      userRole: authUser.role,
+      action: 'create',
+      resource: 'customer',
+      resourceId: customer.id,
+      details: { name: `${customer.firstName} ${customer.lastName}`, phone: customer.phone },
+      request,
+    });
+
+    // Send welcome notification (fire-and-forget)
+    notifyWelcome({
+      orgId: customer.organizationId,
+      customerId: customer.id,
+      customerName: `${customer.firstName} ${customer.lastName}`,
+      email: customer.email || undefined,
+      phone: customer.phone,
     });
 
     return NextResponse.json(customer, { status: 201 });

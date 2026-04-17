@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { requirePermission, getOrgFilter, AuthError } from '@/lib/auth';
+import { logAudit } from '@/lib/audit';
 
 export async function GET(
   request: NextRequest,
@@ -56,7 +57,7 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    requirePermission(request, 'customers.manage');
+    const authUser = requirePermission(request, 'customers.manage');
     const { id } = await params;
     const body = await request.json();
 
@@ -86,6 +87,19 @@ export async function PUT(
       },
     });
 
+    // Log audit
+    await logAudit({
+      organizationId: customer.organizationId,
+      userId: authUser.userId,
+      userEmail: authUser.email,
+      userRole: authUser.role,
+      action: 'update',
+      resource: 'customer',
+      resourceId: customer.id,
+      details: { name: `${customer.firstName} ${customer.lastName}` },
+      request,
+    });
+
     return NextResponse.json(customer);
   } catch (error: unknown) {
     if (error instanceof AuthError) {
@@ -102,7 +116,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    requirePermission(request, 'customers.delete');
+    const authUser = requirePermission(request, 'customers.delete');
     const { id } = await params;
 
     const existing = await db.customer.findUnique({ where: { id } });
@@ -111,6 +125,19 @@ export async function DELETE(
     }
 
     await db.customer.delete({ where: { id } });
+
+    // Log audit
+    await logAudit({
+      organizationId: existing.organizationId,
+      userId: authUser.userId,
+      userEmail: authUser.email,
+      userRole: authUser.role,
+      action: 'delete',
+      resource: 'customer',
+      resourceId: id,
+      details: { name: `${existing.firstName} ${existing.lastName}` },
+      request,
+    });
 
     return NextResponse.json({ message: 'Customer deleted successfully' });
   } catch (error: unknown) {

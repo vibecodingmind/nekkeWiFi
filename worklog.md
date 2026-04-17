@@ -278,3 +278,156 @@ Stage Summary:
 - All API routes now properly protected at middleware level + route handler level (defense in depth)
 - All frontend fetch() calls automatically include JWT Authorization header via global interceptor
 - Platform auth is fully functional end-to-end
+
+---
+Task ID: 3-d
+Agent: full-stack-developer
+Task: Email/SMS Notification Service
+
+Work Log:
+- Created src/lib/notifications-service.ts — comprehensive notification dispatch service:
+  - Core sendNotification() function that always persists to DB + dispatches to configured channel
+  - Supports 3 channels: console (dev), email (SMTP), sms (Africa's Talking / Twilio)
+  - Email/SMS sending with graceful fallback to dev-mode logging when credentials not configured
+  - 5 convenience functions: notifyPaymentReceived, notifyInvoiceOverdue, notifyPaymentReminder, notifyDeviceAlert, notifyWelcome
+- Integrated notifications into payments API route (src/app/api/payments/route.ts):
+  - Added notifyPaymentReceived call after both payment creation paths (with-invoice and without-invoice)
+  - Fetches organization currency for proper amount formatting
+  - Fire-and-forget pattern — doesn't block API response
+- Integrated notifications into customers API route (src/app/api/customers/route.ts):
+  - Added notifyWelcome call after successful customer creation
+  - Includes customer email and phone for delivery
+- Created src/app/api/cron/send-reminders/route.ts — cron endpoint:
+  - Protected with X-Cron-Secret header validation
+  - Finds all pending invoices due within 3 days
+  - Sends payment reminder notifications to affected customers
+  - Returns summary with count sent and any errors
+- Updated src/middleware.ts to allow /api/cron/* routes (cron jobs use X-Cron-Secret instead of JWT)
+- Added notification environment variables to .env (SMTP, SMS, CRON_SECRET configs)
+- All ESLint checks pass with zero errors
+
+Stage Summary:
+- 1 new file created: src/lib/notifications-service.ts
+- 1 new API route created: src/app/api/cron/send-reminders/route.ts
+- 2 existing API routes modified: payments/route.ts, customers/route.ts
+- 1 middleware update: cron routes whitelisted from JWT auth (use X-Cron-Secret instead)
+- 1 config update: .env with notification channel and provider settings
+- Notification types supported: payment_received, invoice_overdue, payment_reminder, device_alert, welcome, system, subscription_expired
+- Dev mode defaults to console logging; production ready for SMTP email and SMS via Africa's Talking/Twilio
+
+---
+Task ID: 3-b
+Agent: full-stack-developer
+Task: Dark/Light Theme + Landing Page + Customer Portal Public Route
+
+Work Log:
+- Feature 1: Dark/Light Theme Toggle
+  - Verified next-themes v0.4.6 already installed in package.json
+  - Updated src/app/layout.tsx: imported ThemeProvider from next-themes, wrapped children + Toaster with ThemeProvider (attribute="class", defaultTheme="light", enableSystem, disableTransitionOnChange)
+  - Updated src/app/page.tsx: imported useTheme, Sun, Moon from next-themes/lucide-react, added theme toggle button in top bar before notifications bell with rotate/scale transitions
+- Feature 2: Landing/Signup Page
+  - Created src/app/(public)/layout.tsx: public route group layout with metadata, reuses globals.css
+  - Created src/app/(public)/page.tsx: full landing page with navbar (logo, Sign In, Get Started), hero section (emerald gradient), features grid (6 cards), stats bar, pricing section (Basic/Professional/Enterprise), CTA section, footer with branding
+  - Created src/app/(public)/signup/page.tsx: signup form with org name, slug (auto-generated), email, phone, admin name, email, password fields; POSTs to /api/signup; success state with redirect to /; branded with emerald green
+  - Created src/app/api/signup/route.ts: public signup API that creates Organization + OrgUser (admin role) with bcrypt hashed password; validates slug format, email, password length; checks for duplicate slug/email
+- Feature 3: Customer Portal as Public Route
+  - Modified src/components/isp/CustomerPortal.tsx: added optional `showBackButton` prop (defaults to true), conditionally renders "Back to Admin Panel" button
+  - Created src/app/(public)/portal/page.tsx: standalone customer portal page, wraps CustomerPortal in QueryClientProvider, passes showBackButton={false} to hide admin back button
+- All ESLint checks pass with zero errors
+
+Stage Summary:
+- 4 files created: (public)/layout.tsx, (public)/page.tsx, (public)/signup/page.tsx, (public)/portal/page.tsx, api/signup/route.ts
+- 3 files modified: layout.tsx (ThemeProvider), page.tsx (theme toggle), CustomerPortal.tsx (showBackButton prop)
+- Dark/light theme toggle working with next-themes class-based switching
+- Public landing page at /(public) with full marketing content
+- Signup page with org + admin account creation via public API
+- Customer portal accessible as standalone public page at /portal
+
+---
+Task ID: 3-a
+Agent: full-stack-developer
+Task: Invoice PDF Generation + Data Export CSV
+
+Work Log:
+- Feature 1: Invoice PDF Download Route
+  - Created src/app/api/invoices/[id]/pdf/route.ts with GET handler
+  - Protected with requirePermission('invoices.view') and getOrgFilter for org isolation
+  - Returns same branded HTML invoice as print route but with Content-Disposition: attachment header
+  - Filename format: invoice-{invoiceNumber}.html (downloadable)
+  - Includes full invoice data: org details, customer info, line items, totals, payment history, notes
+  - Removed print-only UI elements (print button, no-print class) from PDF version
+  - Added FileDown icon button to InvoicesPage.tsx actions column (next to Print button)
+- Feature 2: CSV Data Export Routes
+  - Created src/app/api/export/customers/route.ts: exports all customers as CSV
+    - Headers: ID, First Name, Last Name, Email, Phone, Address, City, Region, Status, Balance, Created
+    - Auth: requirePermission('customers.view') + getOrgFilter
+  - Created src/app/api/export/invoices/route.ts: exports all invoices as CSV
+    - Headers: Invoice #, Customer, Status, Subtotal, Tax, Discount, Total, Due Date, Paid At, Created
+    - Auth: requirePermission('invoices.view') + getOrgFilter
+  - Created src/app/api/export/payments/route.ts: exports all payments as CSV
+    - Headers: ID, Customer, Amount, Method, Channel, Status, Reference, Paid At
+    - Auth: requirePermission('payments.view') + getOrgFilter
+  - All export routes return text/csv with Content-Disposition: attachment headers
+  - CSV values properly escaped (commas, quotes, newlines)
+- Feature 3: Export Buttons in UI
+  - Added Download icon (Export CSV) button to CustomersPage.tsx header
+  - Added Download icon (Export CSV) button to InvoicesPage.tsx header
+  - Added Download icon (Export CSV) button to PaymentsPage.tsx header
+  - All buttons open export URL in new tab via window.open()
+  - Buttons only visible when orgId is selected
+- ESLint passes with zero errors on all modified/created files
+
+Stage Summary:
+- 4 new API routes created (pdf download + 3 CSV exports)
+- 3 existing page components modified (InvoicesPage, CustomersPage, PaymentsPage)
+- Invoice download as branded HTML file with attachment headers
+- Full CSV export with proper escaping and authentication
+- Export buttons integrated into all 3 data management pages
+
+---
+Task ID: 3-c
+Agent: full-stack-developer
+Task: Audit Logging + API Rate Limiting + Automated Billing Cron
+
+Work Log:
+- Feature 1: Audit Logging
+  - Added AuditLog model to prisma/schema.prisma with fields: id, organizationId, userId, userEmail, userRole, action, resource, resourceId, details, ipAddress, userAgent, createdAt
+  - Added auditLogs relation to Organization and OrgUser models
+  - Ran prisma db push + prisma generate successfully
+  - Created src/lib/audit.ts: logAudit() helper that creates audit log entries with IP/user-agent extraction from request, JSON serialization of details, never throws (fire-and-forget)
+  - Created src/app/api/audit-logs/route.ts: GET endpoint with requirePermission('settings.view'), supports pagination, filtering by action/resource/userId, formatted date output, user info resolution
+  - Added audit logging to 6 existing API routes:
+    - auth/route.ts POST: logs 'login' action after successful authentication
+    - customers/route.ts POST: logs 'create' for 'customer' resource
+    - customers/[id]/route.ts PUT: logs 'update', DELETE: logs 'delete'
+    - plans/route.ts POST: logs 'create' for 'plan' resource
+    - invoices/route.ts POST: logs 'create' for 'invoice' resource
+    - users/route.ts POST: logs 'create' for 'user' resource
+- Feature 2: API Rate Limiting
+  - Updated src/middleware.ts with in-memory rate limiting:
+    - General rate limit: 100 requests per minute per IP (all API routes)
+    - Login rate limit: 10 attempts per 5 minutes per IP (stricter for /api/auth POST)
+    - 429 responses with 'Retry-After' header and error code 'RATE_LIMITED'
+    - X-RateLimit-Limit and X-RateLimit-Remaining headers on all responses
+    - Automatic cleanup of expired entries every 5 minutes to prevent memory leaks
+    - Client IP detection via x-forwarded-for, x-real-ip, or 'unknown' fallback
+- Feature 3: Automated Billing Cron
+  - Created src/app/api/cron/billing/route.ts: POST endpoint for full billing automation
+    - Protected with X-Cron-Secret header
+    - Step 1: Marks all pending invoices past due date as 'overdue'
+    - Step 2: Finds active auto-renew subscriptions due within 7 days, generates renewal invoices with proper tax calculation, extends subscription end date
+    - Step 3: Suspends customers with overdue invoices >30 days, also suspends their active subscriptions
+    - Returns detailed results: overdueMarked, invoicesGenerated, subscriptionsSuspended, subscriptionsRenewed, errors
+  - Created src/app/api/cron/mark-overdue/route.ts: POST endpoint to only mark past-due invoices as overdue
+    - Protected with X-Cron-Secret header
+    - Finds pending invoices with dueDate < now, updates status to 'overdue'
+    - Returns count of marked invoices and any errors
+
+Stage Summary:
+- 1 new Prisma model (AuditLog) with 4 indexes
+- 1 new helper module (src/lib/audit.ts)
+- 3 new API routes: /api/audit-logs, /api/cron/billing, /api/cron/mark-overdue
+- 6 existing API routes modified with audit logging calls
+- 1 middleware rewrite with rate limiting (general + login-specific)
+- All ESLint checks pass with zero errors
+- Dev server compiles and runs successfully

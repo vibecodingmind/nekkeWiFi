@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { Prisma } from '@prisma/client';
 import { requirePermission, getOrgFilter, AuthError } from '@/lib/auth';
+import { notifyPaymentReceived } from '@/lib/notifications-service';
 
 export async function GET(request: NextRequest) {
   try {
@@ -158,6 +159,21 @@ export async function POST(request: NextRequest) {
         return payment;
       });
 
+      // Send payment notification (fire-and-forget)
+      const customerName = `${customer.firstName} ${customer.lastName}`;
+      const orgForInvoice = await db.organization.findUnique({ where: { id: orgId }, select: { currency: true } });
+      notifyPaymentReceived({
+        orgId,
+        customerId: customer.id,
+        customerName,
+        amount: result.amount,
+        currency: orgForInvoice?.currency || 'TZS',
+        method: result.method,
+        invoiceNumber: result.invoice?.invoiceNumber,
+        email: customer.email || undefined,
+        phone: customer.phone,
+      });
+
       return NextResponse.json(result, { status: 201 });
     } else {
       const payment = await db.payment.create({
@@ -181,6 +197,20 @@ export async function POST(request: NextRequest) {
           customer: { select: { id: true, firstName: true, lastName: true } },
           invoice: { select: { id: true, invoiceNumber: true } },
         },
+      });
+
+      // Send payment notification (fire-and-forget)
+      const customerNameNoInvoice = `${customer.firstName} ${customer.lastName}`;
+      const orgForDirect = await db.organization.findUnique({ where: { id: orgId }, select: { currency: true } });
+      notifyPaymentReceived({
+        orgId,
+        customerId: customer.id,
+        customerName: customerNameNoInvoice,
+        amount: payment.amount,
+        currency: orgForDirect?.currency || 'TZS',
+        method: payment.method,
+        email: customer.email || undefined,
+        phone: customer.phone,
       });
 
       return NextResponse.json(payment, { status: 201 });

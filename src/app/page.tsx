@@ -64,6 +64,8 @@ import {
 } from 'lucide-react';
 import { useAuthStore } from '@/lib/auth-store';
 import { initFetchInterceptor } from '@/lib/fetch-interceptor';
+import { useTheme } from 'next-themes';
+import { Sun, Moon } from 'lucide-react';
 
 import LoginPage from '@/components/isp/LoginPage';
 import CustomerPortal from '@/components/isp/CustomerPortal';
@@ -190,6 +192,7 @@ function formatTimeAgo(dateStr: string): string {
 function AppContent() {
   const { user, isAuthenticated, isLoading: authLoading, logout, hasPermission } = useAuthStore();
   const qc = useQueryClient();
+  const { theme, setTheme } = useTheme();
   const [activePage, setActivePage] = useState('dashboard');
   const [showCustomerPortal, setShowCustomerPortal] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -490,6 +493,17 @@ function AppContent() {
           </div>
 
           <div className="flex items-center gap-3">
+            {/* Theme Toggle */}
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+              title="Toggle theme"
+            >
+              <Sun className="h-4 w-4 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
+              <Moon className="absolute h-4 w-4 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
+            </Button>
+
             {/* Notifications Bell with Dropdown */}
             <Popover open={notifOpen} onOpenChange={setNotifOpen}>
               <PopoverTrigger asChild>

@@ -36,7 +36,7 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Plus, FileText, Eye, Printer } from 'lucide-react';
+import { Plus, FileText, Eye, Printer, FileDown, Download } from 'lucide-react';
 import { formatTZS, formatDate, getStatusColor } from '@/lib/helpers';
 
 interface InvoicesPageProps {
@@ -226,7 +226,17 @@ export default function InvoicesPage({ orgId }: InvoicesPageProps) {
           <h1 className="text-3xl font-bold tracking-tight">Invoices</h1>
           <p className="text-muted-foreground mt-1">Manage billing invoices</p>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
+          {orgId && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => window.open(`/api/export/invoices?orgId=${orgId}`, '_blank')}
+            >
+              <Download className="h-4 w-4 mr-2" />
+              Export CSV
+            </Button>
+          )}
           <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setPage(1); }}>
             <SelectTrigger className="w-40">
               <SelectValue placeholder="Status" />
@@ -376,6 +386,14 @@ export default function InvoicesPage({ orgId }: InvoicesPageProps) {
                           </TableCell>
                           <TableCell className="text-right">
                             <div className="flex items-center justify-end gap-1">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => window.open(`/api/invoices/${invoice.id}/pdf?orgId=${orgId}`, '_blank')}
+                                title="Download PDF"
+                              >
+                                <FileDown className="h-4 w-4" />
+                              </Button>
                               <Button
                                 variant="ghost"
                                 size="sm"

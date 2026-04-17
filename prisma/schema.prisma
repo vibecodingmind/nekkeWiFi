@@ -35,6 +35,7 @@ model Organization {
   usageRecords  UsageRecord[]
   paymentGateways PaymentGateway[]
   notifications  Notification[]
+  auditLogs     AuditLog[]
 }
 
 // ============================================
@@ -76,6 +77,7 @@ model OrgUser {
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   receivedNotifications Notification[] @relation("UserNotifications")
+  auditLogs     AuditLog[]
 }
 
 // ============================================
@@ -360,4 +362,30 @@ model Notification {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   user         OrgUser?    @relation("UserNotifications", fields: [userId], references: [id], onDelete: Cascade)
   customer     Customer?   @relation(fields: [customerId], references: [id], onDelete: Cascade)
+}
+
+// ============================================
+// AUDIT LOG
+// ============================================
+model AuditLog {
+  id             String   @id @default(cuid())
+  organizationId String
+  userId         String?
+  userEmail      String?
+  userRole       String?
+  action         String   // create, update, delete, login, logout, export, provision
+  resource       String   // customer, plan, device, invoice, payment, subscription, user, organization
+  resourceId     String?
+  details        String?  // JSON string with old/new values or action details
+  ipAddress      String?
+  userAgent      String?
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         OrgUser?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
 }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { Prisma } from '@prisma/client';
 import { requirePermission, getOrgFilter, AuthError } from '@/lib/auth';
+import { logAudit } from '@/lib/audit';
 
 export async function GET(request: NextRequest) {
   try {
@@ -87,6 +88,19 @@ export async function POST(request: NextRequest) {
       include: {
         organization: { select: { id: true, name: true } },
       },
+    });
+
+    // Log audit
+    await logAudit({
+      organizationId: orgId,
+      userId: authUser.userId,
+      userEmail: authUser.email,
+      userRole: authUser.role,
+      action: 'create',
+      resource: 'plan',
+      resourceId: plan.id,
+      details: { name: plan.name, priceMonthly: plan.priceMonthly },
+      request,
     });
 
     return NextResponse.json(plan, { status: 201 });

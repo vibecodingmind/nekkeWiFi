@@ -214,7 +214,7 @@ interface Organization {
 }
 
 // ── Component ──
-export default function CustomerPortal({ onBack }: { onBack: () => void }) {
+export default function CustomerPortal({ onBack, showBackButton = true }: { onBack: () => void; showBackButton?: boolean }) {
   const [portalState, setPortalState] = useState<'login' | 'portal'>('login');
   const [phone, setPhone] = useState('');
   const [selectedOrgId, setSelectedOrgId] = useState('');
@@ -431,10 +431,12 @@ export default function CustomerPortal({ onBack }: { onBack: () => void }) {
               )}
               Sign In
             </Button>
-            <Button variant="ghost" className="w-full" onClick={onBack}>
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Back to Admin Panel
-            </Button>
+            {showBackButton && (
+              <Button variant="ghost" className="w-full" onClick={onBack}>
+                <ArrowLeft className="h-4 w-4 mr-2" />
+                Back to Admin Panel
+              </Button>
+            )}
           </CardContent>
         </Card>
       </div>

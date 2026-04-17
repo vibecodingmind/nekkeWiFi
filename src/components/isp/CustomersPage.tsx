@@ -35,7 +35,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Plus, Search, Users, Eye, Trash2 } from 'lucide-react';
+import { Plus, Search, Users, Eye, Trash2, Download } from 'lucide-react';
 import { formatTZS, formatDate, getStatusColor } from '@/lib/helpers';
 
 interface CustomersPageProps {
@@ -173,7 +173,18 @@ export default function CustomersPage({ orgId }: CustomersPageProps) {
           <h1 className="text-3xl font-bold tracking-tight">Customers</h1>
           <p className="text-muted-foreground mt-1">Manage your subscribers</p>
         </div>
-        <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <div className="flex items-center gap-3">
+          {orgId && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => window.open(`/api/export/customers?orgId=${orgId}`, '_blank')}
+            >
+              <Download className="h-4 w-4 mr-2" />
+              Export CSV
+            </Button>
+          )}
+          <Dialog open={createOpen} onOpenChange={setCreateOpen}>
           <DialogTrigger asChild>
             <Button className="bg-emerald-600 hover:bg-emerald-700 text-white">
               <Plus className="h-4 w-4 mr-2" />
@@ -230,9 +241,9 @@ export default function CustomersPage({ orgId }: CustomersPageProps) {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
 
-      {/* Filters */}
       <div className="flex flex-wrap gap-4">
         <div className="relative flex-1 min-w-[200px] max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />

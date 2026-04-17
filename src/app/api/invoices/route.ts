@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { Prisma } from '@prisma/client';
 import { requirePermission, getOrgFilter, AuthError } from '@/lib/auth';
+import { logAudit } from '@/lib/audit';
 
 async function generateInvoiceNumber(orgId: string): Promise<string> {
   const now = new Date();
@@ -144,6 +145,19 @@ export async function POST(request: NextRequest) {
         lineItems: true,
         payments: true,
       },
+    });
+
+    // Log audit
+    await logAudit({
+      organizationId: orgId,
+      userId: authUser.userId,
+      userEmail: authUser.email,
+      userRole: authUser.role,
+      action: 'create',
+      resource: 'invoice',
+      resourceId: invoice.id,
+      details: { invoiceNumber: invoice.invoiceNumber, total: invoice.total, customerName: `${customer.firstName} ${customer.lastName}` },
+      request,
     });
 
     return NextResponse.json(invoice, { status: 201 });
